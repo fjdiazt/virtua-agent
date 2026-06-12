@@ -17,6 +17,7 @@ Current direction is narrow and inspectable: improve AI responses through explic
 - Pipeline orchestration with `single_agent` stages, per-stage instructions, repeats, stage names, default model/temperature/max tokens, per-stage agent overrides, and random agent selection.
 - Saved pipeline model CRUD at `/v1/pipeline-models`.
 - Saved OpenAI-compatible endpoint CRUD at `/v1/model-endpoints`.
+- Saved Chat page transcript at `/v1/chat-sessions/current/messages`.
 - Built-in `virtua-agent-test` saved model fixture for visible `Draft -> Tighten -> Apply rules` mutation with repeat counts `1, 2, 1`.
 - SQLite trace storage for runs, trace events, request JSON, response JSON, and stage reasoning.
 - Live orchestration event stream at `/v1/orchestrations/{runId}/events`.
@@ -67,7 +68,9 @@ Upstream must expose OpenAI-compatible `/v1/models` and `/v1/chat/completions`.
 
 Additional OpenAI-compatible endpoints can be saved from `/app/settings`. Saved endpoints are stored in SQLite and can be selected in chat and Virtua Agent stage forms.
 
-`TraceStore:ConnectionString` is shared by run traces, saved pipeline models, and saved model endpoints. Local SQLite files are ignored by git.
+The Chat page saves display-only transcript rows in SQLite. Refreshing the page reloads saved messages. The Clear chat button deletes saved current-session messages. Saved chat rows are not sent as model context; each chat request remains independent.
+
+`TraceStore:ConnectionString` is shared by run traces, saved pipeline models, saved model endpoints, and saved chat messages. Local SQLite files are ignored by git.
 
 ## App Development
 

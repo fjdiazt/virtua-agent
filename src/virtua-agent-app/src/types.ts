@@ -28,6 +28,18 @@ export type ChatMessage = {
   content: string;
 };
 
+export type SavedChatMessage = ChatMessage & {
+  id: string;
+  reasoning?: Record<string, string> | null;
+  created_at: string;
+};
+
+export type SaveChatMessageRequest = {
+  role: 'user' | 'assistant';
+  content: string;
+  reasoning?: Record<string, string> | null;
+};
+
 export type AgentRequest = {
   endpoint_id?: string | null;
   model?: string | null;
