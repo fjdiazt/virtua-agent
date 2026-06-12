@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make `/ui/chat` send plain upstream chat by default and use a pipeline only after the user adds stages from a reusable stage settings form.
+**Goal:** Make `/app/chat` send plain upstream chat by default and use a pipeline only after the user adds stages from a reusable stage settings form.
 
 **Architecture:** Keep the backend API contract unchanged. Update `Chat.razor` so the page has a stage draft form and an initially empty stage list, and update `virtua-agent-chat.js` so it only adds the orchestration wrapper when a pipeline is present. Add low-risk browser `localStorage` persistence for the draft and stage list if the JS interop remains small.
 
@@ -20,7 +20,7 @@
   - Adds orchestration only when a non-null pipeline is passed.
   - Provides tiny `loadStageState` and `saveStageState` helpers backed by `localStorage`.
 - Modify `tests/VirtuaAgent.Tests/BlazorUiRouteTests.cs`
-  - Updates the `/ui/chat` smoke test to assert the new `Send` button, visible stage settings form, and empty stage list state.
+  - Updates the `/app/chat` smoke test to assert the new `Send` button, visible stage settings form, and empty stage list state.
 
 ## Task 1: Update Route Smoke Test
 

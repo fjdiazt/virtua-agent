@@ -14,4 +14,4 @@ obj/
 node_modules/
 dist/
 *.tsbuildinfo
-src/virtua-agent-api/VirtuaAgent.Api/wwwroot/ui/
+src/virtua-agent-api/VirtuaAgent.Api/wwwroot/app/

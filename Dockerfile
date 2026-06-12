@@ -1,12 +1,12 @@
 FROM node:22-bookworm-slim AS ui-build
 WORKDIR /src
 
-COPY src/virtua-agent-ui/package*.json ./src/virtua-agent-ui/
-RUN npm ci --prefix src/virtua-agent-ui
+COPY src/virtua-agent-app/package*.json ./src/virtua-agent-app/
+RUN npm ci --prefix src/virtua-agent-app
 
 COPY assets ./assets
-COPY src/virtua-agent-ui ./src/virtua-agent-ui
-RUN npm run build --prefix src/virtua-agent-ui
+COPY src/virtua-agent-app ./src/virtua-agent-app
+RUN npm run build --prefix src/virtua-agent-app
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS api-build
 ARG BUILD_CONFIGURATION=Release
@@ -16,7 +16,7 @@ COPY src/virtua-agent-api/VirtuaAgent.Api/VirtuaAgent.Api.csproj src/virtua-agen
 RUN dotnet restore src/virtua-agent-api/VirtuaAgent.Api/VirtuaAgent.Api.csproj
 
 COPY src/virtua-agent-api ./src/virtua-agent-api
-COPY --from=ui-build /src/src/virtua-agent-api/VirtuaAgent.Api/wwwroot/ui ./src/virtua-agent-api/VirtuaAgent.Api/wwwroot/ui
+COPY --from=ui-build /src/src/virtua-agent-api/VirtuaAgent.Api/wwwroot/app ./src/virtua-agent-api/VirtuaAgent.Api/wwwroot/app
 WORKDIR /src/src/virtua-agent-api/VirtuaAgent.Api
 RUN dotnet publish VirtuaAgent.Api.csproj -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
 

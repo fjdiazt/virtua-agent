@@ -2,14 +2,14 @@
 
 ## Project Structure & Module Organization
 
-This repository contains a local-first OpenAI-compatible orchestration API built with ASP.NET Core plus a separate React/Vite UI.
+This repository contains a local-first OpenAI-compatible orchestration API built with ASP.NET Core plus a separate React/Vite app.
 
 - `src/virtua-agent-api/` contains the backend solution.
 - `src/virtua-agent-api/VirtuaAgent.Api/` holds the ASP.NET Core API.
 - `src/virtua-agent-api/VirtuaAgent.Api/Endpoints/` maps HTTP endpoints such as `/v1/chat/completions`, `/v1/models`, and orchestration routes.
 - `src/virtua-agent-api/VirtuaAgent.Api/OpenAi/`, `PipelineModels/`, `Orchestration/`, `Tracing/`, and `Upstream/` contain DTOs, pipeline execution, SQLite trace storage, and upstream proxy logic.
 - `src/virtua-agent-api/VirtuaAgent.Tests/` contains xUnit unit and integration-style tests.
-- `src/virtua-agent-ui/` contains the React TypeScript Vite UI. It is separate from the .NET solution and builds static files into `src/virtua-agent-api/VirtuaAgent.Api/wwwroot/ui`.
+- `src/virtua-agent-app/` contains the React TypeScript Vite app. It is separate from the .NET solution and builds static files into `src/virtua-agent-api/VirtuaAgent.Api/wwwroot/app`.
 - `src/virtua-agent-api/VirtuaAgent.Api/wwwroot/` stores API-served static assets.
 - `docs/` contains design notes, plans, and drafts.
 
@@ -19,12 +19,12 @@ This repository contains a local-first OpenAI-compatible orchestration API built
 - `dotnet build src/virtua-agent-api/VirtuaAgent.slnx` compiles the API and test project.
 - `dotnet test src/virtua-agent-api/VirtuaAgent.slnx` runs the xUnit test suite.
 - `dotnet run --project src/virtua-agent-api/VirtuaAgent.Api` starts the API locally.
-- `npm install --prefix src/virtua-agent-ui` installs UI dependencies.
-- `npm run dev --prefix src/virtua-agent-ui` starts the Vite UI at `http://localhost:5173`.
-- `npm run build --prefix src/virtua-agent-ui` builds the UI into the API `wwwroot/ui` folder.
+- `npm install --prefix src/virtua-agent-app` installs app dependencies.
+- `npm run dev --prefix src/virtua-agent-app` starts the Vite app at `http://localhost:5173`.
+- `npm run build --prefix src/virtua-agent-app` builds the app into the API `wwwroot/app` folder.
 - `docker compose up -d --build` builds the UI, publishes the API, and runs the app on `http://localhost:4000` by default.
 
-After starting the app, check `/swagger` for API exploration and `/ui/chat` for the built-in chat interface. Configure the upstream OpenAI-compatible server in `src/virtua-agent-api/VirtuaAgent.Api/appsettings.json` or `appsettings.Development.json`.
+After starting the app, check `/swagger` for API exploration and `/app/chat` for the built-in chat interface. Configure the upstream OpenAI-compatible server in `src/virtua-agent-api/VirtuaAgent.Api/appsettings.json` or `appsettings.Development.json`.
 
 ## Coding Style & Naming Conventions
 
@@ -36,7 +36,7 @@ Tests use xUnit with `Microsoft.AspNetCore.Mvc.Testing`, `RichardSzalay.MockHttp
 
 ## Commit & Pull Request Guidelines
 
-Recent history uses Conventional Commit-style subjects such as `feat: add pipeline tester` and `chore: initial commit`. Keep commit subjects short, imperative, and scoped to one change. Pull requests should include a concise summary, test results, linked issues when applicable, and screenshots or short notes for visible UI changes under `src/virtua-agent-ui`.
+Recent history uses Conventional Commit-style subjects such as `feat: add pipeline tester` and `chore: initial commit`. Keep commit subjects short, imperative, and scoped to one change. Pull requests should include a concise summary, test results, linked issues when applicable, and screenshots or short notes for visible app changes under `src/virtua-agent-app`.
 
 ## Security & Configuration Tips
 

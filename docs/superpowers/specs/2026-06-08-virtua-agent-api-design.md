@@ -106,7 +106,7 @@ Initial filters:
 
 Primary grouping in the UI is client/request identity.
 
-### `GET /ui`
+### `GET /app`
 
 Serves the Blazor trace UI from the same .NET app.
 

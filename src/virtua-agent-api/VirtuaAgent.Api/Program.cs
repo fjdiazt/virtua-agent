@@ -90,8 +90,8 @@ app.MapGet("/v1/orchestrations/{runId}/events", OrchestrationEventsEndpoint.Hand
     .WithSummary("Stream live Virtua Agent trace events")
     .Produces(StatusCodes.Status200OK, contentType: "text/event-stream");
 
-app.MapGet("/", () => Results.Redirect("/ui/chat"));
-app.MapFallbackToFile("/ui/{*path:nonfile}", "ui/index.html");
+app.MapGet("/", () => Results.Redirect("/app/chat"));
+app.MapFallbackToFile("/app/{*path:nonfile}", "app/index.html");
 
 app.Run();
 

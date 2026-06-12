@@ -16,7 +16,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <MantineProvider defaultColorScheme="dark">
         <Notifications position="top-right" />
-        <BrowserRouter basename="/ui">
+        <BrowserRouter basename="/app">
           <App />
         </BrowserRouter>
       </MantineProvider>

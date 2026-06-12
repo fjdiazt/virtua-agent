@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: '/ui/',
+  base: '/app/',
   build: {
-    outDir: '../virtua-agent-api/VirtuaAgent.Api/wwwroot/ui',
+    outDir: '../virtua-agent-api/VirtuaAgent.Api/wwwroot/app',
     emptyOutDir: true
   },
   server: {

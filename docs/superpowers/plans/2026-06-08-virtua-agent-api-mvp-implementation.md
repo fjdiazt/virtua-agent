@@ -853,7 +853,7 @@ git commit -m "feat: add orchestration run query endpoints"
 
 Test:
 
-- `GET /ui` returns success.
+- `GET /app` returns success.
 - response contains `Virtua Agent runs`.
 
 - [ ] **Step 2: Implement UI client**
@@ -868,7 +868,7 @@ Test:
 
 Page requirements:
 
-- route `/ui`
+- route `/app`
 - group/display by `client_id` then request id/run id
 - show status, created time, preview, model if available
 - click run to detail page
@@ -877,7 +877,7 @@ Page requirements:
 
 Page requirements:
 
-- route `/ui/runs/{runId}`
+- route `/app/runs/{runId}`
 - show request/response JSON blocks
 - show event timeline
 - append live SSE events while run active
@@ -902,7 +902,7 @@ git commit -m "feat: add Blazor trace UI"
 3. POST a non-streaming chat request to `/v1/chat/completions`.
 4. Assert `Virtua-Agent-Run-Id` header exists.
 5. GET `/v1/orchestrations/{run_id}`.
-6. GET `/ui`.
+6. GET `/app`.
 
 - [ ] **Step 2: Add README quickstart**
 
@@ -953,7 +953,7 @@ Expected: app starts and prints local URLs.
 - [ ] Open UI:
 
 ```text
-http://localhost:<port>/ui
+http://localhost:<port>/app
 ```
 
 Expected: run list page loads.

@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make `/ui/chat` behave like normal chat by default. When the user has not added pipeline stages, sending a message should pass through to the upstream OpenAI-compatible server without a pipeline. The right side of the page should still expose pipeline controls so the user can add stages when needed.
+Make `/app/chat` behave like normal chat by default. When the user has not added pipeline stages, sending a message should pass through to the upstream OpenAI-compatible server without a pipeline. The right side of the page should still expose pipeline controls so the user can add stages when needed.
 
 ## Current Context
 

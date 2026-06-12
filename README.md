@@ -36,13 +36,13 @@ dotnet run --project src/virtua-agent-api/VirtuaAgent.Api
 Open:
 
 ```text
-http://localhost:<port>/ui/chat
-http://localhost:<port>/ui/models
-http://localhost:<port>/ui/runs
+http://localhost:<port>/app/chat
+http://localhost:<port>/app/models
+http://localhost:<port>/app/runs
 http://localhost:<port>/swagger
 ```
 
-Root `/` redirects to `/ui/chat`.
+Root `/` redirects to `/app/chat`.
 
 ## Configure
 
@@ -65,19 +65,19 @@ Upstream must expose OpenAI-compatible `/v1/models` and `/v1/chat/completions`.
 
 `TraceStore:ConnectionString` is shared by run traces and saved pipeline models. Local SQLite files are ignored by git.
 
-## UI Development
+## App Development
 
-The React UI lives in `src/virtua-agent-ui`. Vite dev server proxies API calls to the ASP.NET Core API.
+The React app lives in `src/virtua-agent-app`. Vite dev server proxies API calls to the ASP.NET Core API.
 
 ```powershell
-npm install --prefix src/virtua-agent-ui
-npm run dev --prefix src/virtua-agent-ui
+npm install --prefix src/virtua-agent-app
+npm run dev --prefix src/virtua-agent-app
 ```
 
-Build static UI into `src/virtua-agent-api/VirtuaAgent.Api/wwwroot/ui`:
+Build static app files into `src/virtua-agent-api/VirtuaAgent.Api/wwwroot/app`:
 
 ```powershell
-npm run build --prefix src/virtua-agent-ui
+npm run build --prefix src/virtua-agent-app
 ```
 
 ## Docker
@@ -230,6 +230,6 @@ For streaming pipeline runs, Virtua Agent forwards reasoning chunks as OpenAI-st
 ```powershell
 dotnet build src/virtua-agent-api/VirtuaAgent.slnx
 dotnet test src/virtua-agent-api/VirtuaAgent.slnx -p:UseAppHost=false
-npm run build --prefix src/virtua-agent-ui
+npm run build --prefix src/virtua-agent-app
 docker compose build
 ```
