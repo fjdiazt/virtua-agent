@@ -4,25 +4,26 @@
 
 This repository contains a local-first OpenAI-compatible orchestration API built with ASP.NET Core plus a separate React/Vite UI.
 
-- `src/virtua-agent-api/` holds the ASP.NET Core API.
-- `src/virtua-agent-api/Endpoints/` maps HTTP endpoints such as `/v1/chat/completions`, `/v1/models`, and orchestration routes.
-- `src/virtua-agent-api/OpenAi/`, `virtua-agent/`, `Orchestration/`, `Tracing/`, and `Upstream/` contain DTOs, pipeline execution, SQLite trace storage, and upstream proxy logic.
-- `src/virtua-agent-ui/` contains the React TypeScript Vite UI. It is separate from the .NET solution and builds static files into `src/virtua-agent-api/wwwroot/ui`.
-- `src/virtua-agent-api/wwwroot/` stores API-served static assets.
-- `tests/VirtuaAgent.Tests/` contains xUnit unit and integration-style tests.
+- `src/virtua-agent-api/` contains the backend solution.
+- `src/virtua-agent-api/VirtuaAgent.Api/` holds the ASP.NET Core API.
+- `src/virtua-agent-api/VirtuaAgent.Api/Endpoints/` maps HTTP endpoints such as `/v1/chat/completions`, `/v1/models`, and orchestration routes.
+- `src/virtua-agent-api/VirtuaAgent.Api/OpenAi/`, `PipelineModels/`, `Orchestration/`, `Tracing/`, and `Upstream/` contain DTOs, pipeline execution, SQLite trace storage, and upstream proxy logic.
+- `src/virtua-agent-api/VirtuaAgent.Tests/` contains xUnit unit and integration-style tests.
+- `src/virtua-agent-ui/` contains the React TypeScript Vite UI. It is separate from the .NET solution and builds static files into `src/virtua-agent-api/VirtuaAgent.Api/wwwroot/ui`.
+- `src/virtua-agent-api/VirtuaAgent.Api/wwwroot/` stores API-served static assets.
 - `docs/` contains design notes, plans, and drafts.
 
 ## Build, Test, and Development Commands
 
-- `dotnet restore VirtuaAgent.slnx` restores NuGet packages.
-- `dotnet build VirtuaAgent.slnx` compiles the API and test project.
-- `dotnet test VirtuaAgent.slnx` runs the xUnit test suite.
-- `dotnet run --project src/virtua-agent-api` starts the API locally.
+- `dotnet restore src/virtua-agent-api/VirtuaAgent.slnx` restores NuGet packages.
+- `dotnet build src/virtua-agent-api/VirtuaAgent.slnx` compiles the API and test project.
+- `dotnet test src/virtua-agent-api/VirtuaAgent.slnx` runs the xUnit test suite.
+- `dotnet run --project src/virtua-agent-api/VirtuaAgent.Api` starts the API locally.
 - `npm install --prefix src/virtua-agent-ui` installs UI dependencies.
 - `npm run dev --prefix src/virtua-agent-ui` starts the Vite UI at `http://localhost:5173`.
 - `npm run build --prefix src/virtua-agent-ui` builds the UI into the API `wwwroot/ui` folder.
 
-After starting the app, check `/swagger` for API exploration and `/ui/chat` for the built-in chat interface. Configure the upstream OpenAI-compatible server in `src/virtua-agent-api/appsettings.json` or `appsettings.Development.json`.
+After starting the app, check `/swagger` for API exploration and `/ui/chat` for the built-in chat interface. Configure the upstream OpenAI-compatible server in `src/virtua-agent-api/VirtuaAgent.Api/appsettings.json` or `appsettings.Development.json`.
 
 ## Coding Style & Naming Conventions
 
@@ -30,7 +31,7 @@ Use C# with nullable reference types and implicit usings enabled. Follow the exi
 
 ## Testing Guidelines
 
-Tests use xUnit with `Microsoft.AspNetCore.Mvc.Testing`, `RichardSzalay.MockHttp`, and `coverlet.collector`. Name test classes after the behavior or component under test, for example `PipelineExecutorTests` or `ChatCompletionsEndpointTests`. Use descriptive `[Fact]` method names such as `StageInstructionsOverrideAutomaticRevisionInstruction`. Add tests beside related coverage in `tests/VirtuaAgent.Tests/`, and run `dotnet test VirtuaAgent.slnx` before submitting changes.
+Tests use xUnit with `Microsoft.AspNetCore.Mvc.Testing`, `RichardSzalay.MockHttp`, and `coverlet.collector`. Name test classes after the behavior or component under test, for example `PipelineExecutorTests` or `ChatCompletionsEndpointTests`. Use descriptive `[Fact]` method names such as `StageInstructionsOverrideAutomaticRevisionInstruction`. Add tests beside related coverage in `src/virtua-agent-api/VirtuaAgent.Tests/`, and run `dotnet test src/virtua-agent-api/VirtuaAgent.slnx` before submitting changes.
 
 ## Commit & Pull Request Guidelines
 

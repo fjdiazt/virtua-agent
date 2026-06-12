@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="VirtuaAgent.Api/VirtuaAgent.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="VirtuaAgent.Tests/VirtuaAgent.Tests.csproj" />
+  </Folder>
+</Solution>

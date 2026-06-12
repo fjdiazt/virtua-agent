@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [react()],
   base: '/ui/',
   build: {
-    outDir: '../virtua-agent-api/wwwroot/ui',
+    outDir: '../virtua-agent-api/VirtuaAgent.Api/wwwroot/ui',
     emptyOutDir: true
   },
   server: {

@@ -21,6 +21,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\virtua-agent-api\virtua-agent-api.csproj" />
+    <ProjectReference Include="..\VirtuaAgent.Api\VirtuaAgent.Api.csproj" />
   </ItemGroup>
 </Project>

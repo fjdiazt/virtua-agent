@@ -29,8 +29,8 @@ Current direction is narrow and inspectable: improve AI responses through explic
 ## Run
 
 ```powershell
-dotnet restore VirtuaAgent.slnx
-dotnet run --project src/virtua-agent-api
+dotnet restore src/virtua-agent-api/VirtuaAgent.slnx
+dotnet run --project src/virtua-agent-api/VirtuaAgent.Api
 ```
 
 Open:
@@ -46,7 +46,7 @@ Root `/` redirects to `/ui/chat`.
 
 ## Configure
 
-Configure upstream and storage in `src/virtua-agent-api/appsettings.json` or `src/virtua-agent-api/appsettings.Development.json`.
+Configure upstream and storage in `src/virtua-agent-api/VirtuaAgent.Api/appsettings.json` or `src/virtua-agent-api/VirtuaAgent.Api/appsettings.Development.json`.
 
 ```json
 {
@@ -74,7 +74,7 @@ npm install --prefix src/virtua-agent-ui
 npm run dev --prefix src/virtua-agent-ui
 ```
 
-Build static UI into `src/virtua-agent-api/wwwroot/ui`:
+Build static UI into `src/virtua-agent-api/VirtuaAgent.Api/wwwroot/ui`:
 
 ```powershell
 npm run build --prefix src/virtua-agent-ui
@@ -202,7 +202,7 @@ For streaming pipeline runs, Virtua Agent forwards reasoning chunks as OpenAI-st
 ## Verify
 
 ```powershell
-dotnet build VirtuaAgent.slnx
-dotnet test VirtuaAgent.slnx -p:UseAppHost=false
+dotnet build src/virtua-agent-api/VirtuaAgent.slnx
+dotnet test src/virtua-agent-api/VirtuaAgent.slnx -p:UseAppHost=false
 npm run build --prefix src/virtua-agent-ui
 ```
