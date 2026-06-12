@@ -1,5 +1,6 @@
 using System.Text.Json;
 using VirtuaAgent.OpenAi;
+using VirtuaAgent.ModelEndpoints;
 using VirtuaAgent.Orchestration;
 using VirtuaAgent.PipelineModels;
 using VirtuaAgent.Tracing;
@@ -13,6 +14,7 @@ public static class ChatCompletionsEndpoint
         ChatCompletionRequest request,
         HttpContext httpContext,
         IOpenAiCompatibleUpstreamClient upstreamClient,
+        IModelEndpointStore modelEndpointStore,
         PipelineExecutor pipelineExecutor,
         PipelinePresetCatalog presetCatalog,
         ITraceStore traceStore,
@@ -70,15 +72,27 @@ public static class ChatCompletionsEndpoint
                 return Results.Json(pipelineApiResponse, JsonOptions.Default);
             }
 
+            var endpoint = await ResolveEndpointAsync(request.EndpointId, modelEndpointStore, cancellationToken);
+            var upstreamRequest = request with { EndpointId = null };
             if (request.Stream == true)
             {
-                await upstreamClient.StreamChatAsync(request, httpContext.Response.Body, cancellationToken);
+                if (endpoint is null)
+                {
+                    await upstreamClient.StreamChatAsync(upstreamRequest, httpContext.Response.Body, cancellationToken);
+                }
+                else
+                {
+                    await upstreamClient.StreamChatAsync(upstreamRequest, httpContext.Response.Body, endpoint, cancellationToken);
+                }
+
                 await traceStore.CompleteRunAsync(runId, """{"streamed":true}""", cancellationToken);
                 await PublishAsync(traceStore, traceHub, runId, "run_completed", $$"""{"run_id":"{{runId}}"}""", store, cancellationToken);
                 return StartedResponseResult.Instance;
             }
 
-            var upstreamResponse = await upstreamClient.ChatAsync(request, cancellationToken);
+            var upstreamResponse = endpoint is null
+                ? await upstreamClient.ChatAsync(upstreamRequest, cancellationToken)
+                : await upstreamClient.ChatAsync(upstreamRequest, endpoint, cancellationToken);
             var response = request.Orchestration?.IncludeVirtuaAgent == true
                 ? upstreamResponse with { VirtuaAgent = new VirtuaAgentResponseDto { RunId = runId, TraceUrl = traceUrl } }
                 : upstreamResponse;
@@ -193,6 +207,28 @@ public static class ChatCompletionsEndpoint
         }
 
         return ex.Message;
+    }
+
+    private static async Task<ModelEndpointDefinition?> ResolveEndpointAsync(
+        string? endpointId,
+        IModelEndpointStore modelEndpointStore,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(endpointId))
+        {
+            return null;
+        }
+
+        var endpoint = await modelEndpointStore.GetAsync(endpointId, cancellationToken);
+        if (endpoint is null)
+        {
+            throw new PipelineValidationException(
+                $"Model endpoint '{endpointId}' was not found.",
+                "endpoint_id",
+                "invalid_endpoint");
+        }
+
+        return endpoint;
     }
 
     private static async Task<ChatCompletionRequest> ApplyPresetPipelineAsync(

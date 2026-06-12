@@ -16,6 +16,7 @@ Current direction is narrow and inspectable: improve AI responses through explic
 - OpenAI-compatible `/v1/models` list that merges upstream models with saved Virtua Agent Pipeline-backed models.
 - Pipeline orchestration with `single_agent` stages, per-stage instructions, repeats, stage names, default model/temperature/max tokens, per-stage agent overrides, and random agent selection.
 - Saved pipeline model CRUD at `/v1/pipeline-models`.
+- Saved OpenAI-compatible endpoint CRUD at `/v1/model-endpoints`.
 - Built-in `virtua-agent-test` saved model fixture for visible `Draft -> Tighten -> Apply rules` mutation with repeat counts `1, 2, 1`.
 - SQLite trace storage for runs, trace events, request JSON, response JSON, and stage reasoning.
 - Live orchestration event stream at `/v1/orchestrations/{runId}/events`.
@@ -24,7 +25,7 @@ Current direction is narrow and inspectable: improve AI responses through explic
 - Optional response metadata with `orchestration.include_virtua_agent: true`.
 - Optional trace persistence disable with `orchestration.store: false`.
 - Streaming reasoning support from upstream reasoning fields and `<think>...</think>` content extraction.
-- React workbench UI for Chat, Virtua Agent Models, Runs, and Swagger.
+- React workbench UI for Chat, Virtua Agent Models, Runs, Settings, and Swagger.
 
 ## Run
 
@@ -39,6 +40,7 @@ Open:
 http://localhost:<port>/app/chat
 http://localhost:<port>/app/models
 http://localhost:<port>/app/runs
+http://localhost:<port>/app/settings
 http://localhost:<port>/swagger
 ```
 
@@ -63,7 +65,9 @@ Configure upstream and storage in `src/virtua-agent-api/VirtuaAgent.Api/appsetti
 
 Upstream must expose OpenAI-compatible `/v1/models` and `/v1/chat/completions`.
 
-`TraceStore:ConnectionString` is shared by run traces and saved pipeline models. Local SQLite files are ignored by git.
+Additional OpenAI-compatible endpoints can be saved from `/app/settings`. Saved endpoints are stored in SQLite and can be selected in chat and Virtua Agent stage forms.
+
+`TraceStore:ConnectionString` is shared by run traces, saved pipeline models, and saved model endpoints. Local SQLite files are ignored by git.
 
 ## App Development
 

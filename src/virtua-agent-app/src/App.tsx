@@ -38,13 +38,17 @@ import {
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import logoUrl from '../../../assets/logo.png';
 import {
+  deleteModelEndpoint,
   deleteVirtuaAgentModel,
+  listEndpointModels,
+  listModelEndpoints,
   listVirtuaAgentModels,
   listModels,
   listUpstreamModels,
+  saveModelEndpoint,
   saveVirtuaAgentModel
 } from './api';
-import type { ChatMessage, VirtuaAgentModel, PipelineStage } from './types';
+import type { ChatMessage, ModelEndpoint, SaveModelEndpointRequest, VirtuaAgentModel, PipelineStage } from './types';
 
 function splitThinkBlocks(raw: string) {
   let answer = '';
@@ -79,6 +83,23 @@ type ReasoningBuckets = Record<string, string>;
 const reasoningOpenKey = 'virtua-agent.chat.reasoning.open';
 const reasoningPanelsKey = 'virtua-agent.chat.reasoning.panels';
 const chatModelSessionKey = 'virtua-agent.chat.model';
+const chatEndpointSessionKey = 'virtua-agent.chat.endpoint';
+const defaultEndpointValue = '__default__';
+
+function endpointSelectData(endpoints: ModelEndpoint[]) {
+  return [
+    { value: defaultEndpointValue, label: 'Default upstream' },
+    ...endpoints.map((endpoint) => ({ value: endpoint.id, label: endpoint.name }))
+  ];
+}
+
+function endpointValue(endpointId?: string | null) {
+  return endpointId ?? defaultEndpointValue;
+}
+
+function endpointIdFromValue(value: string | null) {
+  return value === defaultEndpointValue ? null : value;
+}
 
 function readSessionBool(key: string, fallback: boolean) {
   const value = sessionStorage.getItem(key);
@@ -102,13 +123,14 @@ const emptyStage = (): PipelineStage => ({
   repeat: 1,
   name: '',
   instructions: '',
-  agent: { model: null, temperature: null, max_tokens: null }
+  agent: { endpoint_id: null, model: null, temperature: null, max_tokens: null }
 });
 
 const emptyModel = (baseModel?: string): VirtuaAgentModel => ({
   id: 'virtua-agent/new-model',
   ownedBy: 'virtua-agent',
   pipeline: {
+    default_endpoint_id: null,
     default_model: baseModel ?? null,
     default_temperature: 0.2,
     default_max_tokens: 512,
@@ -121,7 +143,8 @@ export function App() {
   const nav = [
     { label: 'Chat', icon: IconMessageCircle, to: '/chat' },
     { label: 'Models', icon: IconBrandOpenai, to: '/models' },
-    { label: 'Runs', icon: IconActivity, to: '/runs' }
+    { label: 'Runs', icon: IconActivity, to: '/runs' },
+    { label: 'Settings', icon: IconSettings, to: '/settings' }
   ];
 
   return (
@@ -152,6 +175,7 @@ export function App() {
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/models" element={<ModelsPage />} />
           <Route path="/runs" element={<RunsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </AppShell.Main>
     </AppShell>
@@ -159,6 +183,8 @@ export function App() {
 }
 
 function ChatPage() {
+  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
+  const [endpointId, setEndpointId] = useState<string | null>(() => endpointIdFromValue(sessionStorage.getItem(chatEndpointSessionKey)));
   const [models, setModels] = useState<string[]>([]);
   const [model, setModel] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -172,15 +198,26 @@ function ChatPage() {
   const previousReasoningLabelsRef = useRef<string[]>([]);
   const reasoningEntries = Object.entries(reasoningBuckets).filter(([, value]) => value.trim().length > 0);
 
+  async function loadChatModels(nextEndpointId: string | null) {
+    const items = nextEndpointId ? await listEndpointModels(nextEndpointId) : await listModels();
+    setModels(items);
+    const savedModel = sessionStorage.getItem(chatModelSessionKey);
+    setModel((current) => current && items.includes(current) ? current : savedModel && items.includes(savedModel) ? savedModel : items[0] ?? null);
+  }
+
   useEffect(() => {
-    listModels()
-      .then((items) => {
-        setModels(items);
-        const savedModel = sessionStorage.getItem(chatModelSessionKey);
-        setModel((current) => current ?? (savedModel && items.includes(savedModel) ? savedModel : items[0] ?? null));
-      })
+    listModelEndpoints()
+      .then(setEndpoints)
       .catch((error) => notifications.show({ color: 'red', message: error.message }));
   }, []);
+
+  useEffect(() => {
+    loadChatModels(endpointId).catch((error) => notifications.show({ color: 'red', message: error.message }));
+  }, [endpointId]);
+
+  useEffect(() => {
+    sessionStorage.setItem(chatEndpointSessionKey, endpointValue(endpointId));
+  }, [endpointId]);
 
   useEffect(() => {
     if (model) {
@@ -227,7 +264,7 @@ function ChatPage() {
       const response = await fetch('/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, stream: true, messages: nextMessages })
+        body: JSON.stringify({ endpoint_id: endpointId, model, stream: true, messages: nextMessages })
       });
 
       if (!response.ok || !response.body) {
@@ -305,15 +342,28 @@ function ChatPage() {
           <Title order={2}>Chat</Title>
           <Text c="dimmed">Transient API test chat. Session memory only.</Text>
         </Box>
-        <Select
-          w={360}
-          searchable
-          label="Model"
-          data={models}
-          value={model}
-          onChange={setModel}
-          placeholder="Select model"
-        />
+        <Group align="end">
+          <Select
+            w={220}
+            searchable
+            label="Endpoint"
+            data={endpointSelectData(endpoints)}
+            value={endpointValue(endpointId)}
+            onChange={(value) => {
+              setEndpointId(endpointIdFromValue(value));
+              setModel(null);
+            }}
+          />
+          <Select
+            w={360}
+            searchable
+            label="Model"
+            data={models}
+            value={model}
+            onChange={setModel}
+            placeholder="Select model"
+          />
+        </Group>
       </Group>
 
       <Paper className={`chat-surface ${reasoningEntries.length > 0 && reasoningOpen ? 'has-reasoning' : ''}`} withBorder>
@@ -403,6 +453,8 @@ function ChatPage() {
 }
 
 function ModelsPage() {
+  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
+  const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({});
   const [upstreamModels, setUpstreamModels] = useState<string[]>([]);
   const [items, setItems] = useState<VirtuaAgentModel[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -418,15 +470,36 @@ function ModelsPage() {
   }, []);
 
   useEffect(() => {
-    if (selected) setDraft(structuredClone(selected));
+    if (selected) {
+      setDraft(structuredClone(selected));
+      void loadModelsForEndpoint(selected.pipeline.default_endpoint_id);
+      selected.pipeline.stages.forEach((stage) => {
+        void loadModelsForEndpoint(stage.agent?.endpoint_id);
+      });
+    }
   }, [selected]);
 
   async function refresh() {
-    const [sourceModels, VirtuaAgentModels] = await Promise.all([listUpstreamModels(), listVirtuaAgentModels()]);
+    const [sourceModels, savedEndpoints, VirtuaAgentModels] = await Promise.all([listUpstreamModels(), listModelEndpoints(), listVirtuaAgentModels()]);
+    setEndpoints(savedEndpoints);
     setUpstreamModels(sourceModels);
+    setEndpointModels((current) => ({ ...current, [defaultEndpointValue]: sourceModels }));
     setItems(VirtuaAgentModels);
     if (!selectedId && VirtuaAgentModels[0]) setSelectedId(VirtuaAgentModels[0].id);
     if (!selectedId && !VirtuaAgentModels[0]) setDraft(emptyModel(sourceModels[0]));
+  }
+
+  async function loadModelsForEndpoint(endpointId?: string | null) {
+    const key = endpointValue(endpointId);
+    if (endpointModels[key]) return endpointModels[key];
+
+    const models = endpointId ? await listEndpointModels(endpointId) : await listUpstreamModels();
+    setEndpointModels((current) => ({ ...current, [key]: models }));
+    return models;
+  }
+
+  function modelsForEndpoint(endpointId?: string | null) {
+    return endpointModels[endpointValue(endpointId)] ?? (endpointId ? [] : upstreamModels);
   }
 
   function updateStage(index: number, stage: PipelineStage) {
@@ -492,8 +565,19 @@ function ModelsPage() {
                 onChange={(event) => setDraft({ ...draft, id: event.currentTarget.value })}
               />
               <Select
+                label="Default endpoint"
+                data={endpointSelectData(endpoints)}
+                value={endpointValue(draft.pipeline.default_endpoint_id)}
+                searchable
+                onChange={(value) => {
+                  const nextEndpointId = endpointIdFromValue(value);
+                  setDraft({ ...draft, pipeline: { ...draft.pipeline, default_endpoint_id: nextEndpointId, default_model: null } });
+                  void loadModelsForEndpoint(nextEndpointId);
+                }}
+              />
+              <Select
                 label="Default model"
-                data={upstreamModels}
+                data={modelsForEndpoint(draft.pipeline.default_endpoint_id)}
                 value={draft.pipeline.default_model ?? null}
                 searchable
                 onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_model: value } })}
@@ -543,11 +627,22 @@ function ModelsPage() {
                         onChange={(event) => updateStage(index, { ...stage, name: event.currentTarget.value })}
                       />
                       <Select
+                        label="Stage endpoint"
+                        data={endpointSelectData(endpoints)}
+                        value={endpointValue(stage.agent?.endpoint_id)}
+                        searchable
+                        onChange={(value) => {
+                          const nextEndpointId = endpointIdFromValue(value);
+                          updateStage(index, { ...stage, agent: { ...stage.agent, endpoint_id: nextEndpointId, model: null } });
+                          void loadModelsForEndpoint(nextEndpointId);
+                        }}
+                      />
+                      <Select
                         label="Stage model"
                         placeholder="Use default model"
                         clearable
                         searchable
-                        data={upstreamModels}
+                        data={modelsForEndpoint(stage.agent?.endpoint_id)}
                         value={stage.agent?.model ?? null}
                         onChange={(value) => updateStage(index, { ...stage, agent: { ...stage.agent, model: value } })}
                       />
@@ -597,6 +692,144 @@ function ModelsPage() {
                 </Button>
               </Group>
             </Group>
+          </Stack>
+        </Paper>
+      </Box>
+    </Stack>
+  );
+}
+
+function SettingsPage() {
+  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<SaveModelEndpointRequest>({ name: '', base_url: '', api_key: '' });
+  const [models, setModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+
+  const selected = useMemo(
+    () => endpoints.find((endpoint) => endpoint.id === selectedId),
+    [endpoints, selectedId]
+  );
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  useEffect(() => {
+    if (!selected) return;
+    setDraft({ id: selected.id, name: selected.name, base_url: selected.base_url, api_key: '' });
+    void refreshModels(selected.id);
+  }, [selected]);
+
+  async function refresh() {
+    const items = await listModelEndpoints();
+    setEndpoints(items);
+    if (!selectedId && items[0]) setSelectedId(items[0].id);
+  }
+
+  async function refreshModels(endpointId: string) {
+    setLoadingModels(true);
+    try {
+      setModels(await listEndpointModels(endpointId));
+    } catch (error) {
+      setModels([]);
+      notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Failed to load models' });
+    } finally {
+      setLoadingModels(false);
+    }
+  }
+
+  async function saveEndpoint() {
+    const apiKey = draft.api_key?.trim();
+    const saved = await saveModelEndpoint({ ...draft, api_key: apiKey ? apiKey : undefined });
+    notifications.show({ color: 'green', message: `Saved ${saved.name}` });
+    await refresh();
+    setSelectedId(saved.id);
+  }
+
+  async function removeEndpoint() {
+    if (!selectedId) return;
+    await deleteModelEndpoint(selectedId);
+    notifications.show({ color: 'green', message: 'Endpoint deleted' });
+    setSelectedId(null);
+    setDraft({ name: '', base_url: '', api_key: '' });
+    setModels([]);
+    await refresh();
+  }
+
+  return (
+    <Stack gap="lg">
+      <Group justify="space-between">
+        <Box>
+          <Title order={2}>Settings</Title>
+          <Text c="dimmed">OpenAI-compatible endpoints for chat and pipeline stages.</Text>
+        </Box>
+        <Button leftSection={<IconPlus size={16} />} onClick={() => { setSelectedId(null); setDraft({ name: '', base_url: '', api_key: '' }); setModels([]); }}>
+          New endpoint
+        </Button>
+      </Group>
+
+      <Box className="models-grid">
+        <Paper withBorder p="sm">
+          <Stack gap={4}>
+            {endpoints.map((endpoint) => (
+              <NavLink
+                key={endpoint.id}
+                active={endpoint.id === selectedId}
+                label={endpoint.name}
+                description={endpoint.base_url}
+                leftSection={<IconSettings size={18} />}
+                onClick={() => setSelectedId(endpoint.id)}
+              />
+            ))}
+            {endpoints.length === 0 && <Text c="dimmed" p="sm">No endpoints saved.</Text>}
+          </Stack>
+        </Paper>
+
+        <Paper withBorder p="lg">
+          <Stack>
+            <Group grow align="end">
+              <TextInput
+                label="Name"
+                value={draft.name}
+                onChange={(event) => setDraft({ ...draft, name: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Base URL"
+                placeholder="http://localhost:8080"
+                value={draft.base_url}
+                onChange={(event) => setDraft({ ...draft, base_url: event.currentTarget.value })}
+              />
+            </Group>
+            <TextInput
+              label="API key"
+              placeholder={selected?.has_api_key ? 'Leave blank to keep saved key' : 'Optional'}
+              value={draft.api_key ?? ''}
+              onChange={(event) => setDraft({ ...draft, api_key: event.currentTarget.value })}
+            />
+            <Group justify="space-between">
+              <Button
+                variant="light"
+                loading={loadingModels}
+                disabled={!selectedId}
+                onClick={() => selectedId && void refreshModels(selectedId)}
+              >
+                Refresh models
+              </Button>
+              <Group>
+                <Button variant="subtle" color="red" leftSection={<IconTrash size={16} />} disabled={!selectedId} onClick={() => void removeEndpoint()}>
+                  Delete
+                </Button>
+                <Button leftSection={<IconSettings size={16} />} onClick={() => void saveEndpoint()}>
+                  Save endpoint
+                </Button>
+              </Group>
+            </Group>
+            <Divider label="Models" />
+            <Stack gap={6}>
+              {models.map((model) => <Badge key={model} variant="light">{model}</Badge>)}
+              {models.length === 0 && <Text c="dimmed">No models loaded.</Text>}
+            </Stack>
           </Stack>
         </Paper>
       </Box>
