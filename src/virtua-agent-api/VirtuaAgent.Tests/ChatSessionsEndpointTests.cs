@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -46,6 +47,24 @@ public sealed class ChatSessionsEndpointTests
     }
 
     [Fact]
+    public async Task MetadataRoundTripsThroughStore()
+    {
+        await using var store = new SqliteChatSessionStore("Data Source=:memory:");
+        await store.InitializeAsync();
+
+        await store.AppendCurrentMessageAsync(new SaveChatSessionMessageRequest
+        {
+            Role = "assistant",
+            Content = "partial",
+            Metadata = new Dictionary<string, object?> { ["canceled"] = true }
+        });
+
+        var message = (await store.ListCurrentMessagesAsync()).Single();
+
+        Assert.True(ReadCanceled(message));
+    }
+
+    [Fact]
     public async Task GetMessagesReturnsSavedMessages()
     {
         var store = new InMemoryChatSessionStore();
@@ -65,6 +84,32 @@ public sealed class ChatSessionsEndpointTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("hello", messages!.Single().Content);
+    }
+
+    [Fact]
+    public async Task MetadataRoundTripsThroughApi()
+    {
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    services.RemoveAll<IChatSessionStore>();
+                    services.AddSingleton<IChatSessionStore>(new InMemoryChatSessionStore());
+                });
+            });
+        var client = factory.CreateClient();
+
+        var postResponse = await client.PostAsJsonAsync("/v1/chat-sessions/current/messages", new SaveChatSessionMessageRequest
+        {
+            Role = "assistant",
+            Content = "partial",
+            Metadata = new Dictionary<string, object?> { ["canceled"] = true }
+        }, JsonOptions.Default);
+        var message = await postResponse.Content.ReadFromJsonAsync<ChatSessionMessageDto>(JsonOptions.Default);
+
+        Assert.Equal(HttpStatusCode.OK, postResponse.StatusCode);
+        Assert.True(ReadCanceled(message!));
     }
 
     [Fact]
@@ -128,6 +173,7 @@ public sealed class ChatSessionsEndpointTests
                 Role = request.Role,
                 Content = request.Content,
                 Reasoning = request.Reasoning,
+                Metadata = request.Metadata,
                 CreatedAt = DateTimeOffset.UtcNow.AddTicks(_messages.Count)
             };
             _messages.Add(message);
@@ -140,5 +186,12 @@ public sealed class ChatSessionsEndpointTests
             _messages.Clear();
             return Task.FromResult(count);
         }
+    }
+
+    private static bool ReadCanceled(ChatSessionMessageDto message)
+    {
+        Assert.NotNull(message.Metadata);
+        var value = Assert.IsType<JsonElement>(message.Metadata["canceled"]);
+        return value.GetBoolean();
     }
 }

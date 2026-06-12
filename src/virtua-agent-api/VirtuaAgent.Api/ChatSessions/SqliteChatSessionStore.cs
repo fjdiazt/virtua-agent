@@ -39,10 +39,12 @@ public sealed class SqliteChatSessionStore : IChatSessionStore, IAsyncDisposable
               role TEXT NOT NULL,
               content TEXT NOT NULL,
               reasoning_json TEXT NULL,
+              metadata_json TEXT NULL,
               created_at TEXT NOT NULL,
               FOREIGN KEY(session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
             );
             """, cancellationToken);
+        await EnsureColumnAsync(connection, "chat_messages", "metadata_json", "TEXT NULL", cancellationToken);
         await ExecuteAsync(connection, """
             CREATE INDEX IF NOT EXISTS ix_chat_messages_session_created
             ON chat_messages(session_id, created_at);
@@ -58,7 +60,7 @@ public sealed class SqliteChatSessionStore : IChatSessionStore, IAsyncDisposable
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT id, role, content, reasoning_json, created_at
+            SELECT id, role, content, reasoning_json, metadata_json, created_at
             FROM chat_messages
             WHERE session_id = $session_id
             ORDER BY created_at ASC, id ASC;
@@ -88,13 +90,14 @@ public sealed class SqliteChatSessionStore : IChatSessionStore, IAsyncDisposable
             Role = request.Role.Trim().ToLowerInvariant(),
             Content = request.Content,
             Reasoning = request.Reasoning is { Count: > 0 } ? request.Reasoning : null,
+            Metadata = request.Metadata is { Count: > 0 } ? request.Metadata : null,
             CreatedAt = now
         };
 
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO chat_messages (id, session_id, role, content, reasoning_json, created_at)
-            VALUES ($id, $session_id, $role, $content, $reasoning_json, $created_at);
+            INSERT INTO chat_messages (id, session_id, role, content, reasoning_json, metadata_json, created_at)
+            VALUES ($id, $session_id, $role, $content, $reasoning_json, $metadata_json, $created_at);
             UPDATE chat_sessions
             SET updated_at = $created_at
             WHERE id = $session_id;
@@ -104,6 +107,7 @@ public sealed class SqliteChatSessionStore : IChatSessionStore, IAsyncDisposable
         Add(command, "$role", message.Role);
         Add(command, "$content", message.Content);
         Add(command, "$reasoning_json", message.Reasoning is null ? null : JsonSerializer.Serialize(message.Reasoning, JsonOptions.Default));
+        Add(command, "$metadata_json", message.Metadata is null ? null : JsonSerializer.Serialize(message.Metadata, JsonOptions.Default));
         Add(command, "$created_at", message.CreatedAt.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
 
@@ -136,6 +140,7 @@ public sealed class SqliteChatSessionStore : IChatSessionStore, IAsyncDisposable
     private static ChatSessionMessageDto ReadMessage(SqliteDataReader reader)
     {
         var reasoningJson = reader.IsDBNull(3) ? null : reader.GetString(3);
+        var metadataJson = reader.IsDBNull(4) ? null : reader.GetString(4);
         return new ChatSessionMessageDto
         {
             Id = reader.GetString(0),
@@ -144,7 +149,10 @@ public sealed class SqliteChatSessionStore : IChatSessionStore, IAsyncDisposable
             Reasoning = string.IsNullOrWhiteSpace(reasoningJson)
                 ? null
                 : JsonSerializer.Deserialize<Dictionary<string, string>>(reasoningJson, JsonOptions.Default),
-            CreatedAt = DateTimeOffset.Parse(reader.GetString(4))
+            Metadata = string.IsNullOrWhiteSpace(metadataJson)
+                ? null
+                : JsonSerializer.Deserialize<Dictionary<string, object?>>(metadataJson, JsonOptions.Default),
+            CreatedAt = DateTimeOffset.Parse(reader.GetString(5))
         };
     }
 
@@ -159,6 +167,27 @@ public sealed class SqliteChatSessionStore : IChatSessionStore, IAsyncDisposable
         Add(command, "$title", "Current chat");
         Add(command, "$now", DateTimeOffset.UtcNow.ToString("O"));
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task EnsureColumnAsync(
+        SqliteConnection connection,
+        string tableName,
+        string columnName,
+        string definition,
+        CancellationToken cancellationToken)
+    {
+        await using var check = connection.CreateCommand();
+        check.CommandText = $"PRAGMA table_info({tableName});";
+        await using var reader = await check.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (reader.GetString(1).Equals(columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        await ExecuteAsync(connection, $"ALTER TABLE {tableName} ADD COLUMN {columnName} {definition};", cancellationToken);
     }
 
     private async Task<SqliteConnection> OpenConnectionAsync(CancellationToken cancellationToken)
