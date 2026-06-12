@@ -3,10 +3,25 @@ import type { VirtuaAgentModel, ModelDto, ModelEndpoint, ModelListResponse, Save
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `HTTP ${response.status}`);
+    throw new Error(errorMessageFrom(text, response.status));
   }
 
   return response.json() as Promise<T>;
+}
+
+function errorMessageFrom(text: string, status: number) {
+  if (!text) return `HTTP ${status}`;
+
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed?.error?.message === 'string') {
+      return parsed.error.message;
+    }
+  } catch {
+    return text;
+  }
+
+  return text;
 }
 
 export async function listModels(): Promise<string[]> {
@@ -56,7 +71,7 @@ export async function saveModelEndpoint(endpoint: SaveModelEndpointRequest): Pro
 export async function deleteModelEndpoint(id: string): Promise<void> {
   const response = await fetch(`/v1/model-endpoints/${id}`, { method: 'DELETE' });
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    throw new Error(errorMessageFrom(await response.text(), response.status));
   }
 }
 
@@ -72,6 +87,6 @@ export async function saveVirtuaAgentModel(model: VirtuaAgentModel): Promise<Vir
 export async function deleteVirtuaAgentModel(id: string): Promise<void> {
   const response = await fetch(`/v1/pipeline-models/${id}`, { method: 'DELETE' });
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    throw new Error(errorMessageFrom(await response.text(), response.status));
   }
 }

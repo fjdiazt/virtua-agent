@@ -740,21 +740,29 @@ function SettingsPage() {
   }
 
   async function saveEndpoint() {
-    const apiKey = draft.api_key?.trim();
-    const saved = await saveModelEndpoint({ ...draft, api_key: apiKey ? apiKey : undefined });
-    notifications.show({ color: 'green', message: `Saved ${saved.name}` });
-    await refresh();
-    setSelectedId(saved.id);
+    try {
+      const apiKey = draft.api_key?.trim();
+      const saved = await saveModelEndpoint({ ...draft, api_key: apiKey ? apiKey : undefined });
+      notifications.show({ color: 'green', message: `Saved ${saved.name}` });
+      await refresh();
+      setSelectedId(saved.id);
+    } catch (error) {
+      notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Failed to save endpoint' });
+    }
   }
 
   async function removeEndpoint() {
     if (!selectedId) return;
-    await deleteModelEndpoint(selectedId);
-    notifications.show({ color: 'green', message: 'Endpoint deleted' });
-    setSelectedId(null);
-    setDraft({ name: '', base_url: '', api_key: '' });
-    setModels([]);
-    await refresh();
+    try {
+      await deleteModelEndpoint(selectedId);
+      notifications.show({ color: 'green', message: 'Endpoint deleted' });
+      setSelectedId(null);
+      setDraft({ name: '', base_url: '', api_key: '' });
+      setModels([]);
+      await refresh();
+    } catch (error) {
+      notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Failed to delete endpoint' });
+    }
   }
 
   return (
