@@ -38,13 +38,16 @@ import {
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import logoUrl from '../../../assets/logo.png';
 import {
+  clearSavedChatMessages,
   deleteModelEndpoint,
   deleteVirtuaAgentModel,
   listEndpointModels,
   listModelEndpoints,
+  listSavedChatMessages,
   listVirtuaAgentModels,
   listModels,
   listUpstreamModels,
+  saveChatMessage,
   saveModelEndpoint,
   saveVirtuaAgentModel
 } from './api';
@@ -212,6 +215,19 @@ function ChatPage() {
   }, []);
 
   useEffect(() => {
+    listSavedChatMessages()
+      .then((items) => {
+        setMessages(items.map((item) => ({ role: item.role, content: item.content })));
+        const lastReasoning = [...items].reverse().find((item) => item.reasoning)?.reasoning;
+        if (lastReasoning) {
+          setReasoningBuckets(lastReasoning);
+          setOpenReasoningPanels(Object.keys(lastReasoning));
+        }
+      })
+      .catch((error) => notifications.show({ color: 'red', message: error.message }));
+  }, []);
+
+  useEffect(() => {
     loadChatModels(endpointId).catch((error) => notifications.show({ color: 'red', message: error.message }));
   }, [endpointId]);
 
@@ -251,8 +267,9 @@ function ChatPage() {
     const content = input.trim();
     if (!content || !model || busy) return;
 
-    const nextMessages: ChatMessage[] = [...messages, { role: 'user', content }];
-    setMessages([...nextMessages, { role: 'assistant', content: '' }]);
+    const userMessage: ChatMessage = { role: 'user', content };
+    const displayMessages: ChatMessage[] = [...messages, userMessage];
+    setMessages([...displayMessages, { role: 'assistant', content: '' }]);
     setInput('');
     setReasoningBuckets({});
     previousReasoningLabelsRef.current = [];
@@ -261,10 +278,14 @@ function ChatPage() {
     setBusy(true);
 
     try {
+      await saveChatMessage({ role: 'user', content }).catch((error) =>
+        notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Failed to save chat message' })
+      );
+
       const response = await fetch('/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint_id: endpointId, model, stream: true, messages: nextMessages })
+        body: JSON.stringify({ endpoint_id: endpointId, model, stream: true, messages: [userMessage] })
       });
 
       if (!response.ok || !response.body) {
@@ -276,7 +297,9 @@ function ChatPage() {
       const decoder = new TextDecoder();
       let buffer = '';
       let rawAssistant = '';
+      let assistantContent = '';
       const streamReasoningBuckets: ReasoningBuckets = {};
+      let finalReasoningBuckets: ReasoningBuckets = {};
 
       while (true) {
         const { done, value } = await reader.read();
@@ -321,17 +344,42 @@ function ChatPage() {
               nextReasoningBuckets['Model reasoning'] = parsed.reasoning;
             }
 
+            assistantContent = parsed.answer;
+            finalReasoningBuckets = nextReasoningBuckets;
             setReasoningBuckets(nextReasoningBuckets);
-            setMessages([...nextMessages, { role: 'assistant', content: parsed.answer }]);
+            setMessages([...displayMessages, { role: 'assistant', content: parsed.answer }]);
           }
         }
+      }
+
+      if (assistantContent.trim().length > 0) {
+        await saveChatMessage({
+          role: 'assistant',
+          content: assistantContent,
+          reasoning: Object.keys(finalReasoningBuckets).length > 0 ? finalReasoningBuckets : null
+        }).catch((error) =>
+          notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Failed to save chat response' })
+        );
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Request failed';
       notifications.show({ color: 'red', message });
-      setMessages(nextMessages);
+      setMessages(displayMessages);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function clearChat() {
+    try {
+      await clearSavedChatMessages();
+      setMessages([]);
+      setReasoningBuckets({});
+      previousReasoningLabelsRef.current = [];
+      setOpenReasoningPanels([]);
+      setRunId(null);
+    } catch (error) {
+      notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Failed to clear chat' });
     }
   }
 
@@ -363,6 +411,9 @@ function ChatPage() {
             onChange={setModel}
             placeholder="Select model"
           />
+          <Button variant="light" color="red" leftSection={<IconTrash size={16} />} onClick={() => void clearChat()}>
+            Clear chat
+          </Button>
         </Group>
       </Group>
 

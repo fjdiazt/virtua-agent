@@ -1,3 +1,4 @@
+using VirtuaAgent.ChatSessions;
 using VirtuaAgent.Endpoints;
 using VirtuaAgent.ModelEndpoints;
 using VirtuaAgent.PipelineModels;
@@ -39,6 +40,14 @@ builder.Services.AddSingleton<IModelEndpointStore>(_ =>
     var connectionString = builder.Configuration.GetValue<string>("TraceStore:ConnectionString")
         ?? "Data Source=virtua-agent.db";
     var store = new SqliteModelEndpointStore(connectionString);
+    store.InitializeAsync().GetAwaiter().GetResult();
+    return store;
+});
+builder.Services.AddSingleton<IChatSessionStore>(_ =>
+{
+    var connectionString = builder.Configuration.GetValue<string>("TraceStore:ConnectionString")
+        ?? "Data Source=virtua-agent.db";
+    var store = new SqliteChatSessionStore(connectionString);
     store.InitializeAsync().GetAwaiter().GetResult();
     return store;
 });
@@ -97,6 +106,15 @@ app.MapDelete("/v1/model-endpoints/{id}", ModelEndpointsEndpoint.DeleteAsync)
 app.MapGet("/v1/model-endpoints/{id}/models", ModelEndpointsEndpoint.ListModelsAsync)
     .WithName("ListModelEndpointModels")
     .WithSummary("List models from a configured OpenAI-compatible model endpoint");
+app.MapGet("/v1/chat-sessions/current/messages", ChatSessionsEndpoint.ListCurrentMessagesAsync)
+    .WithName("ListCurrentChatMessages")
+    .WithSummary("List saved messages from the current Virtua Agent chat session");
+app.MapPost("/v1/chat-sessions/current/messages", ChatSessionsEndpoint.AppendCurrentMessageAsync)
+    .WithName("AppendCurrentChatMessage")
+    .WithSummary("Append a saved message to the current Virtua Agent chat session");
+app.MapDelete("/v1/chat-sessions/current/messages", ChatSessionsEndpoint.ClearCurrentMessagesAsync)
+    .WithName("ClearCurrentChatMessages")
+    .WithSummary("Clear saved messages from the current Virtua Agent chat session");
 app.MapGet("/v1/orchestrations/{runId}", OrchestrationRunsEndpoint.GetAsync)
     .WithName("GetOrchestrationRun")
     .WithSummary("Get a Virtua Agent orchestration run");
