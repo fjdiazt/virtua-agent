@@ -26,6 +26,11 @@ export type SaveModelEndpointRequest = {
 export type ChatMessage = {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  metadata?: ChatMessageMetadata | null;
+};
+
+export type ChatMessageMetadata = {
+  canceled?: boolean;
 };
 
 export type SavedChatMessage = ChatMessage & {
@@ -38,6 +43,7 @@ export type SaveChatMessageRequest = {
   role: 'user' | 'assistant';
   content: string;
   reasoning?: Record<string, string> | null;
+  metadata?: ChatMessageMetadata | null;
 };
 
 export type AgentRequest = {
