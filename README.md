@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Virtua Agent logo" width="220">
+  <img src="assets/logo.png" alt="Virtua Agent logo" width="480">
 </p>
 
 # Virtua Agent API
@@ -88,9 +88,7 @@ Plain OpenAI-compatible proxy:
 {
   "model": "local-model",
   "stream": true,
-  "messages": [
-    { "role": "user", "content": "Write a concise summary." }
-  ]
+  "messages": [{ "role": "user", "content": "Write a concise summary." }]
 }
 ```
 
@@ -100,9 +98,7 @@ Inline Virtua Agent Pipeline:
 {
   "model": "local-model",
   "stream": true,
-  "messages": [
-    { "role": "user", "content": "Improve this paragraph." }
-  ],
+  "messages": [{ "role": "user", "content": "Improve this paragraph." }],
   "orchestration": {
     "include_virtua_agent": true,
     "store": true,
@@ -139,9 +135,7 @@ Saved Virtua Agent model call:
 {
   "model": "virtua-agent-test",
   "stream": true,
-  "messages": [
-    { "role": "user", "content": "Explain trace storage." }
-  ],
+  "messages": [{ "role": "user", "content": "Explain trace storage." }],
   "orchestration": {
     "include_virtua_agent": true
   }

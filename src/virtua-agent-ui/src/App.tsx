@@ -36,6 +36,7 @@ import {
   IconTrash
 } from '@tabler/icons-react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import logoUrl from '../../../assets/logo.png';
 import {
   deleteVirtuaAgentModel,
   listVirtuaAgentModels,
@@ -126,13 +127,10 @@ export function App() {
   return (
     <AppShell navbar={{ width: 260, breakpoint: 'sm' }} padding="lg" className="shell">
       <AppShell.Navbar p="md">
-        <Group gap="sm" mb="xl">
-          <Box className="brand-mark">H</Box>
-          <Box>
-            <Title order={3}>Virtua Agent</Title>
-            <Text size="xs" c="dimmed">API workbench</Text>
-          </Box>
-        </Group>
+        <Stack className="brand-block" gap={4} mb="xl">
+          <img className="brand-logo" src={logoUrl} alt="Virtua Agent" />
+          <Text size="xs" c="dimmed">API workbench</Text>
+        </Stack>
         <Stack gap={4}>
           {nav.map((item) => (
             <NavLink
