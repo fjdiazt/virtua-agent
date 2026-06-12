@@ -1,0 +1,24 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${VIRTUA_AGENT_PORT:-4000}:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
+      - ASPNETCORE_HTTP_PORTS=8080
+      - Upstream__BaseUrl=${UPSTREAM_BASE_URL:-http://192.168.100.101:8080}
+      - Upstream__RequestTimeoutSeconds=${UPSTREAM_REQUEST_TIMEOUT_SECONDS:-100}
+      - TraceStore__ConnectionString=Data Source=/data/virtua-agent.db
+      - Build__Sha=${BUILD_SHA:-local}
+      - Build__Branch=${BUILD_BRANCH:-local}
+      - Build__Time=${BUILD_TIME:-local}
+    volumes:
+      - virtua_agent_data:/data
+      - dp_keys:/root/.aspnet/DataProtection-Keys
+    restart: unless-stopped
+
+volumes:
+  virtua_agent_data:
+  dp_keys:

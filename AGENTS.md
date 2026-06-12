@@ -22,6 +22,7 @@ This repository contains a local-first OpenAI-compatible orchestration API built
 - `npm install --prefix src/virtua-agent-ui` installs UI dependencies.
 - `npm run dev --prefix src/virtua-agent-ui` starts the Vite UI at `http://localhost:5173`.
 - `npm run build --prefix src/virtua-agent-ui` builds the UI into the API `wwwroot/ui` folder.
+- `docker compose up -d --build` builds the UI, publishes the API, and runs the app on `http://localhost:4000` by default.
 
 After starting the app, check `/swagger` for API exploration and `/ui/chat` for the built-in chat interface. Configure the upstream OpenAI-compatible server in `src/virtua-agent-api/VirtuaAgent.Api/appsettings.json` or `appsettings.Development.json`.
 

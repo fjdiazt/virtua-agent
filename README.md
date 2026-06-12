@@ -80,6 +80,32 @@ Build static UI into `src/virtua-agent-api/VirtuaAgent.Api/wwwroot/ui`:
 npm run build --prefix src/virtua-agent-ui
 ```
 
+## Docker
+
+Build and run the API with the bundled UI:
+
+```powershell
+docker compose up -d --build
+```
+
+Defaults:
+
+- Host port: `4000`
+- Container port: `8080`
+- Upstream URL: `http://192.168.100.101:8080`
+- SQLite database: `/data/virtua-agent.db` in the `virtua_agent_data` volume
+
+Override with `.env` or shell variables:
+
+```text
+VIRTUA_AGENT_PORT=4000
+UPSTREAM_BASE_URL=http://192.168.100.101:8080
+UPSTREAM_REQUEST_TIMEOUT_SECONDS=100
+ASPNETCORE_ENVIRONMENT=Production
+```
+
+Gitea Actions deploy from `.gitea/workflows/deploy.yaml` on pushes to `main` and uses the same variables when configured in the repository.
+
 ## Chat Examples
 
 Plain OpenAI-compatible proxy:
@@ -205,4 +231,5 @@ For streaming pipeline runs, Virtua Agent forwards reasoning chunks as OpenAI-st
 dotnet build src/virtua-agent-api/VirtuaAgent.slnx
 dotnet test src/virtua-agent-api/VirtuaAgent.slnx -p:UseAppHost=false
 npm run build --prefix src/virtua-agent-ui
+docker compose build
 ```

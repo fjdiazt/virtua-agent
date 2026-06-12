@@ -1,0 +1,34 @@
+name: Deploy Virtua Agent
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Connecting to Gitea
+        run: git config --global url."http://oboro.local:6080/".insteadOf "http://gitea:3000/"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via Docker Compose
+        run: |
+          BUILD_SHA=$(git rev-parse --short=12 HEAD)
+          BUILD_BRANCH="${GITHUB_REF_NAME:-${GITEA_REF_NAME:-main}}"
+          BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > .env << 'EOF'
+          ASPNETCORE_ENVIRONMENT=${{ vars.ASPNETCORE_ENVIRONMENT || 'Production' }}
+          VIRTUA_AGENT_PORT=${{ vars.VIRTUA_AGENT_PORT || '4000' }}
+          UPSTREAM_BASE_URL=${{ vars.UPSTREAM_BASE_URL || 'http://192.168.100.101:8080' }}
+          UPSTREAM_REQUEST_TIMEOUT_SECONDS=${{ vars.UPSTREAM_REQUEST_TIMEOUT_SECONDS || '100' }}
+          EOF
+          {
+            echo "BUILD_SHA=$BUILD_SHA"
+            echo "BUILD_BRANCH=$BUILD_BRANCH"
+            echo "BUILD_TIME=$BUILD_TIME"
+          } >> .env
+          docker compose up -d --build

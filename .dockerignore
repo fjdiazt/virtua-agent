@@ -1,0 +1,16 @@
+.git/
+.gitea/
+.github/
+.superpowers/
+.docs/
+.logs/
+.scripts/
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/*.db
+**/*.log
+**/*.pid
+**/*.tsbuildinfo
+src/virtua-agent-api/VirtuaAgent.Api/wwwroot/ui/
