@@ -2,7 +2,7 @@
   <img src="assets/logo.png" alt="Virtua Agent logo" width="480">
 </p>
 
-# Virtua Agent API
+# Virtua Agent
 
 Local-first OpenAI-compatible orchestration API with an ASP.NET Core backend and React/Vite workbench UI.
 
