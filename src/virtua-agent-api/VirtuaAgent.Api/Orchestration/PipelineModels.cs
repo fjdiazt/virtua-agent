@@ -4,6 +4,7 @@ using VirtuaAgent.PipelineModels;
 namespace VirtuaAgent.Orchestration;
 
 public sealed record PipelineDefinition(
+    string? DefaultEndpointId,
     string? DefaultModel,
     double? DefaultTemperature,
     int? DefaultMaxTokens,

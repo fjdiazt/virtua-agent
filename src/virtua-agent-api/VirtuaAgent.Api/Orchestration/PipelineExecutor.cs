@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text;
 using System.Text.Json.Serialization;
 using VirtuaAgent.OpenAi;
+using VirtuaAgent.ModelEndpoints;
 using VirtuaAgent.PipelineModels;
 using VirtuaAgent.Tracing;
 using VirtuaAgent.Upstream;
@@ -10,6 +11,7 @@ namespace VirtuaAgent.Orchestration;
 
 public sealed class PipelineExecutor(
     IOpenAiCompatibleUpstreamClient upstreamClient,
+    IModelEndpointStore modelEndpointStore,
     ITraceStore traceStore,
     ActiveTraceHub traceHub)
 {
@@ -33,14 +35,18 @@ public sealed class PipelineExecutor(
                 await PublishAsync(runId, "stage_started", new { stage_index = executionIndex, stage_type = stage.Type, stage_name = stage.Name }, store, cancellationToken);
                 var agent = SelectAgent(stage, random);
                 var stageRequest = BuildSingleAgentRequest(request, context, pipeline, stage, agent, executionIndex);
+                var endpoint = await ResolveEndpointAsync(agent?.EndpointId ?? pipeline.DefaultEndpointId, $"orchestration.pipeline.stages[{stageIndex}].agent.endpoint_id", cancellationToken);
                 await PublishAsync(runId, "agent_request", new
                 {
                     stage_index = executionIndex,
+                    endpoint_id = endpoint?.Id,
                     model = stageRequest.Model,
                     instructions_preview = PreviewInstructions(stage.Instructions)
                 }, store, cancellationToken);
 
-                lastResponse = await upstreamClient.ChatAsync(stageRequest, cancellationToken);
+                lastResponse = endpoint is null
+                    ? await upstreamClient.ChatAsync(stageRequest, cancellationToken)
+                    : await upstreamClient.ChatAsync(stageRequest, endpoint, cancellationToken);
                 context.CurrentAnswer = lastResponse.Choices.FirstOrDefault()?.Message.Content ?? "";
 
                 await PublishAsync(runId, "agent_response", new { stage_index = executionIndex, content = context.CurrentAnswer }, store, cancellationToken);
@@ -78,9 +84,11 @@ public sealed class PipelineExecutor(
                 await PublishAsync(runId, "stage_started", new { stage_index = executionIndex, stage_type = stage.Type, stage_name = stage.Name }, store, cancellationToken);
                 var agent = SelectAgent(stage, random);
                 var stageRequest = BuildSingleAgentRequest(request, context, pipeline, stage, agent, executionIndex) with { Stream = true };
+                var endpoint = await ResolveEndpointAsync(agent?.EndpointId ?? pipeline.DefaultEndpointId, $"orchestration.pipeline.stages[{stageIndex}].agent.endpoint_id", cancellationToken);
                 await PublishAsync(runId, "agent_request", new
                 {
                     stage_index = executionIndex,
+                    endpoint_id = endpoint?.Id,
                     model = stageRequest.Model,
                     instructions_preview = PreviewInstructions(stage.Instructions)
                 }, store, cancellationToken);
@@ -93,7 +101,7 @@ public sealed class PipelineExecutor(
                 var thinkExtractor = new ThinkTagStreamExtractor();
                 var reasoningMetadata = BuildReasoningMetadata(stageIndex, executionIndex, repeatIndex, stage);
 
-                await upstreamClient.StreamChatAsync(stageRequest, async (data, token) =>
+                var onDataAsync = async (string data, CancellationToken token) =>
                 {
                     var delta = OpenAiStreamData.ParseDelta(data);
                     if (delta is null)
@@ -135,7 +143,16 @@ public sealed class PipelineExecutor(
                             await AppendAndWriteReasoningAsync(runId, store, output, responseId, responseCreated, responseModel, reasoningMetadata, reasoning, token);
                         }
                     }
-                }, cancellationToken);
+                };
+
+                if (endpoint is null)
+                {
+                    await upstreamClient.StreamChatAsync(stageRequest, onDataAsync, cancellationToken);
+                }
+                else
+                {
+                    await upstreamClient.StreamChatAsync(stageRequest, endpoint, onDataAsync, cancellationToken);
+                }
 
                 stageContent += thinkExtractor.Complete();
                 context.CurrentAnswer = stageContent.Trim();
@@ -211,6 +228,7 @@ public sealed class PipelineExecutor(
         ValidateExpandedInstructions(definitions);
 
         return new PipelineDefinition(
+            request.Orchestration?.Pipeline?.DefaultEndpointId,
             request.Orchestration?.Pipeline?.DefaultModel,
             request.Orchestration?.Pipeline?.DefaultTemperature,
             request.Orchestration?.Pipeline?.DefaultMaxTokens,
@@ -266,6 +284,7 @@ public sealed class PipelineExecutor(
         return originalRequest with
         {
             Model = NormalizeModel(agent?.Model) ?? NormalizeModel(pipeline.DefaultModel) ?? originalRequest.Model,
+            EndpointId = null,
             Temperature = agent?.Temperature ?? pipeline.DefaultTemperature ?? originalRequest.Temperature,
             MaxTokens = agent?.MaxTokens ?? pipeline.DefaultMaxTokens ?? originalRequest.MaxTokens,
             Stream = false,
@@ -282,6 +301,25 @@ public sealed class PipelineExecutor(
         }
 
         return model;
+    }
+
+    private async Task<ModelEndpointDefinition?> ResolveEndpointAsync(string? endpointId, string param, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(endpointId))
+        {
+            return null;
+        }
+
+        var endpoint = await modelEndpointStore.GetAsync(endpointId, cancellationToken);
+        if (endpoint is null)
+        {
+            throw new PipelineValidationException(
+                $"Model endpoint '{endpointId}' was not found.",
+                param,
+                "invalid_endpoint");
+        }
+
+        return endpoint;
     }
 
     private static string? PreviewInstructions(string? instructions)

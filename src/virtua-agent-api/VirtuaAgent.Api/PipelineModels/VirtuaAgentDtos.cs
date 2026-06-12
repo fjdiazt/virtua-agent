@@ -13,6 +13,9 @@ public sealed record OrchestrationRequestDto
 
 public sealed record PipelineRequestDto
 {
+    [JsonPropertyName("default_endpoint_id")]
+    public string? DefaultEndpointId { get; init; }
+
     [JsonPropertyName("default_model")]
     public string? DefaultModel { get; init; }
 
@@ -42,6 +45,9 @@ public sealed record PipelineStageRequestDto
 
 public sealed record AgentRequestDto
 {
+    [JsonPropertyName("endpoint_id")]
+    public string? EndpointId { get; init; }
+
     public string? Model { get; init; }
     public double? Temperature { get; init; }
 

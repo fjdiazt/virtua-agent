@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using VirtuaAgent.ModelEndpoints;
 using VirtuaAgent.PipelineModels;
 using VirtuaAgent.OpenAi;
 using VirtuaAgent.Tracing;
@@ -43,6 +44,38 @@ public sealed class ChatCompletionsEndpointTests
         var body = await response.Content.ReadFromJsonAsync<ChatCompletionResponse>(JsonOptions.Default);
         Assert.Equal("answer", body!.Choices[0].Message.Content);
         Assert.Null(body.VirtuaAgent);
+    }
+
+    [Fact]
+    public async Task PostChatCompletionsUsesSelectedEndpoint()
+    {
+        var upstream = new FakeUpstreamClient();
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    services.RemoveAll<IOpenAiCompatibleUpstreamClient>();
+                    services.RemoveAll<ITraceStore>();
+                    services.RemoveAll<IModelEndpointStore>();
+                    services.AddSingleton<IOpenAiCompatibleUpstreamClient>(upstream);
+                    services.AddSingleton<ITraceStore>(new RecordingTraceStore());
+                    services.AddSingleton<IModelEndpointStore>(new InMemoryModelEndpointStore(
+                        new ModelEndpointDefinition { Id = "llamacpp", Name = "llama.cpp", BaseUrl = "http://llama.test" }));
+                });
+            });
+
+        var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/v1/chat/completions", new ChatCompletionRequest
+        {
+            EndpointId = "llamacpp",
+            Model = "local-model",
+            Messages = [new ChatMessageDto { Role = "user", Content = "hello" }]
+        }, JsonOptions.Default);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("llamacpp", upstream.EndpointIds.Single());
+        Assert.Null(upstream.Requests[0].EndpointId);
     }
 
     [Fact]
@@ -341,6 +374,7 @@ public sealed class ChatCompletionsEndpointTests
         private int _index;
 
         public List<ChatCompletionRequest> Requests { get; } = [];
+        public List<string> EndpointIds { get; } = [];
 
         public Task<ModelListResponse> ListModelsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new ModelListResponse());
@@ -364,6 +398,12 @@ public sealed class ChatCompletionsEndpointTests
                     }
                 ]
             });
+        }
+
+        public Task<ChatCompletionResponse> ChatAsync(ChatCompletionRequest request, ModelEndpointDefinition endpoint, CancellationToken cancellationToken = default)
+        {
+            EndpointIds.Add(endpoint.Id);
+            return ChatAsync(request, cancellationToken);
         }
 
         public Task StreamChatAsync(ChatCompletionRequest request, Stream output, CancellationToken cancellationToken = default) =>
@@ -432,5 +472,22 @@ public sealed class ChatCompletionsEndpointTests
             return Task.CompletedTask;
         }
         public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default) => Task.FromResult(_models.Remove(id));
+    }
+
+    private sealed class InMemoryModelEndpointStore(params ModelEndpointDefinition[] endpoints) : IModelEndpointStore
+    {
+        private readonly Dictionary<string, ModelEndpointDefinition> _endpoints = endpoints.ToDictionary(endpoint => endpoint.Id, StringComparer.OrdinalIgnoreCase);
+
+        public Task<IReadOnlyList<ModelEndpointDefinition>> ListAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ModelEndpointDefinition>>(_endpoints.Values.ToList());
+
+        public Task<ModelEndpointDefinition?> GetAsync(string id, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_endpoints.GetValueOrDefault(id));
+
+        public Task<ModelEndpointDefinition> SaveAsync(SaveModelEndpointRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

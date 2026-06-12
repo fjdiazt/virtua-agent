@@ -1,4 +1,5 @@
 using VirtuaAgent.Endpoints;
+using VirtuaAgent.ModelEndpoints;
 using VirtuaAgent.PipelineModels;
 using VirtuaAgent.OpenAi;
 using VirtuaAgent.Orchestration;
@@ -30,6 +31,14 @@ builder.Services.AddSingleton<ITraceStore>(_ =>
     var connectionString = builder.Configuration.GetValue<string>("TraceStore:ConnectionString")
         ?? "Data Source=virtua-agent.db";
     var store = new SqliteTraceStore(connectionString);
+    store.InitializeAsync().GetAwaiter().GetResult();
+    return store;
+});
+builder.Services.AddSingleton<IModelEndpointStore>(_ =>
+{
+    var connectionString = builder.Configuration.GetValue<string>("TraceStore:ConnectionString")
+        ?? "Data Source=virtua-agent.db";
+    var store = new SqliteModelEndpointStore(connectionString);
     store.InitializeAsync().GetAwaiter().GetResult();
     return store;
 });
@@ -76,6 +85,18 @@ app.MapPost("/v1/pipeline-models", PipelineModelsEndpoint.SaveAsync)
 app.MapDelete("/v1/pipeline-models/{**id}", PipelineModelsEndpoint.DeleteAsync)
     .WithName("DeletePipelineModel")
     .WithSummary("Delete a saved Virtua Agent Pipeline-backed model");
+app.MapGet("/v1/model-endpoints", ModelEndpointsEndpoint.ListAsync)
+    .WithName("ListModelEndpoints")
+    .WithSummary("List configured OpenAI-compatible model endpoints");
+app.MapPost("/v1/model-endpoints", ModelEndpointsEndpoint.SaveAsync)
+    .WithName("SaveModelEndpoint")
+    .WithSummary("Save an OpenAI-compatible model endpoint");
+app.MapDelete("/v1/model-endpoints/{id}", ModelEndpointsEndpoint.DeleteAsync)
+    .WithName("DeleteModelEndpoint")
+    .WithSummary("Delete an OpenAI-compatible model endpoint");
+app.MapGet("/v1/model-endpoints/{id}/models", ModelEndpointsEndpoint.ListModelsAsync)
+    .WithName("ListModelEndpointModels")
+    .WithSummary("List models from a configured OpenAI-compatible model endpoint");
 app.MapGet("/v1/orchestrations/{runId}", OrchestrationRunsEndpoint.GetAsync)
     .WithName("GetOrchestrationRun")
     .WithSummary("Get a Virtua Agent orchestration run");

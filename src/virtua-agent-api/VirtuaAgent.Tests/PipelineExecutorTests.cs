@@ -1,4 +1,5 @@
 using VirtuaAgent.OpenAi;
+using VirtuaAgent.ModelEndpoints;
 using VirtuaAgent.Orchestration;
 using VirtuaAgent.PipelineModels;
 using VirtuaAgent.Tracing;
@@ -12,7 +13,7 @@ public sealed class PipelineExecutorTests
     public async Task FirstStageWithoutInstructionsSendsOriginalConversationUnchanged()
     {
         var upstream = new RecordingUpstreamClient("answer");
-        var executor = new PipelineExecutor(upstream, new NoopTraceStore(), new ActiveTraceHub());
+        var executor = CreateExecutor(upstream);
         var request = new ChatCompletionRequest
         {
             Model = "local-model",
@@ -40,7 +41,7 @@ public sealed class PipelineExecutorTests
     public async Task FirstStageWithInstructionsReceivesOriginalConversationAndStageInstruction()
     {
         var upstream = new RecordingUpstreamClient("answer");
-        var executor = new PipelineExecutor(upstream, new NoopTraceStore(), new ActiveTraceHub());
+        var executor = CreateExecutor(upstream);
         var request = new ChatCompletionRequest
         {
             Model = "local-model",
@@ -76,7 +77,7 @@ public sealed class PipelineExecutorTests
     public async Task LaterStageWithInstructionsReceivesPipelineProtocolAndLabeledPromptSections()
     {
         var upstream = new RecordingUpstreamClient("draft answer", "corrected answer");
-        var executor = new PipelineExecutor(upstream, new NoopTraceStore(), new ActiveTraceHub());
+        var executor = CreateExecutor(upstream);
         var request = new ChatCompletionRequest
         {
             Model = "local-model",
@@ -122,7 +123,7 @@ public sealed class PipelineExecutorTests
     public async Task LaterStageWithoutInstructionsIsRejected()
     {
         var upstream = new RecordingUpstreamClient("first answer");
-        var executor = new PipelineExecutor(upstream, new NoopTraceStore(), new ActiveTraceHub());
+        var executor = CreateExecutor(upstream);
         var request = new ChatCompletionRequest
         {
             Model = "local-model",
@@ -152,7 +153,7 @@ public sealed class PipelineExecutorTests
     public async Task StageWithoutModelUsesPipelineDefaultModel()
     {
         var upstream = new RecordingUpstreamClient("answer");
-        var executor = new PipelineExecutor(upstream, new NoopTraceStore(), new ActiveTraceHub());
+        var executor = CreateExecutor(upstream);
         var request = new ChatCompletionRequest
         {
             Model = "virtua-agent/editor",
@@ -172,6 +173,77 @@ public sealed class PipelineExecutorTests
         Assert.Equal("local-model", upstream.Requests[0].Model);
     }
 
+    [Fact]
+    public async Task StageWithEndpointIdUsesSelectedEndpoint()
+    {
+        var upstream = new RecordingUpstreamClient("answer");
+        var endpointStore = new FakeModelEndpointStore(new ModelEndpointDefinition
+        {
+            Id = "llamacpp",
+            Name = "llama.cpp",
+            BaseUrl = "http://llama.test"
+        });
+        var executor = new PipelineExecutor(upstream, endpointStore, new NoopTraceStore(), new ActiveTraceHub());
+        var request = new ChatCompletionRequest
+        {
+            Model = "virtua-agent/editor",
+            Messages = [new ChatMessageDto { Role = "user", Content = "write answer" }],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    DefaultModel = "local-model",
+                    Stages =
+                    [
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Agent = new AgentRequestDto { EndpointId = "llamacpp" }
+                        }
+                    ]
+                }
+            }
+        };
+
+        await executor.ExecuteAsync("run_test", request, store: true);
+
+        Assert.Equal("llamacpp", upstream.EndpointIds.Single());
+        Assert.Null(upstream.Requests[0].EndpointId);
+    }
+
+    [Fact]
+    public async Task StageWithMissingEndpointIdIsRejected()
+    {
+        var upstream = new RecordingUpstreamClient("answer");
+        var executor = CreateExecutor(upstream);
+        var request = new ChatCompletionRequest
+        {
+            Model = "virtua-agent/editor",
+            Messages = [new ChatMessageDto { Role = "user", Content = "write answer" }],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    DefaultModel = "local-model",
+                    Stages =
+                    [
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Agent = new AgentRequestDto { EndpointId = "missing" }
+                        }
+                    ]
+                }
+            }
+        };
+
+        var ex = await Assert.ThrowsAsync<PipelineValidationException>(
+            () => executor.ExecuteAsync("run_test", request, store: true));
+
+        Assert.Equal("invalid_endpoint", ex.Code);
+        Assert.Empty(upstream.Requests);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
@@ -180,7 +252,7 @@ public sealed class PipelineExecutorTests
     public async Task StageDefaultModelSentinelUsesPipelineDefaultModel(string stageModel)
     {
         var upstream = new RecordingUpstreamClient("answer");
-        var executor = new PipelineExecutor(upstream, new NoopTraceStore(), new ActiveTraceHub());
+        var executor = CreateExecutor(upstream);
         var request = new ChatCompletionRequest
         {
             Model = "virtua-agent/editor",
@@ -211,7 +283,7 @@ public sealed class PipelineExecutorTests
     public async Task StageWithoutOverridesUsesPipelineDefaultOptions()
     {
         var upstream = new RecordingUpstreamClient("answer");
-        var executor = new PipelineExecutor(upstream, new NoopTraceStore(), new ActiveTraceHub());
+        var executor = CreateExecutor(upstream);
         var request = new ChatCompletionRequest
         {
             Model = "virtua-agent/editor",
@@ -239,7 +311,7 @@ public sealed class PipelineExecutorTests
     public async Task RepeatedStageWithoutSecondExecutionInstructionsIsRejected()
     {
         var upstream = new RecordingUpstreamClient("first answer");
-        var executor = new PipelineExecutor(upstream, new NoopTraceStore(), new ActiveTraceHub());
+        var executor = CreateExecutor(upstream);
         var request = new ChatCompletionRequest
         {
             Model = "local-model",
@@ -266,6 +338,7 @@ public sealed class PipelineExecutorTests
         private int _index;
 
         public List<ChatCompletionRequest> Requests { get; } = [];
+        public List<string> EndpointIds { get; } = [];
 
         public Task<ModelListResponse> ListModelsAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(new ModelListResponse());
@@ -291,7 +364,33 @@ public sealed class PipelineExecutorTests
             });
         }
 
+        public Task<ChatCompletionResponse> ChatAsync(ChatCompletionRequest request, ModelEndpointDefinition endpoint, CancellationToken cancellationToken = default)
+        {
+            EndpointIds.Add(endpoint.Id);
+            return ChatAsync(request, cancellationToken);
+        }
+
         public Task StreamChatAsync(ChatCompletionRequest request, Stream output, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    private static PipelineExecutor CreateExecutor(IOpenAiCompatibleUpstreamClient upstream) =>
+        new(upstream, new FakeModelEndpointStore(), new NoopTraceStore(), new ActiveTraceHub());
+
+    private sealed class FakeModelEndpointStore(params ModelEndpointDefinition[] endpoints) : IModelEndpointStore
+    {
+        private readonly Dictionary<string, ModelEndpointDefinition> _endpoints = endpoints.ToDictionary(endpoint => endpoint.Id, StringComparer.OrdinalIgnoreCase);
+
+        public Task<IReadOnlyList<ModelEndpointDefinition>> ListAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<ModelEndpointDefinition>>(_endpoints.Values.ToList());
+
+        public Task<ModelEndpointDefinition?> GetAsync(string id, CancellationToken cancellationToken = default) =>
+            Task.FromResult(_endpoints.GetValueOrDefault(id));
+
+        public Task<ModelEndpointDefinition> SaveAsync(SaveModelEndpointRequest request, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
     }
 

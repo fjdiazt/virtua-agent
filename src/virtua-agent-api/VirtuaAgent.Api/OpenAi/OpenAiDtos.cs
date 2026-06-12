@@ -15,6 +15,10 @@ public static class JsonOptions
 public sealed record ChatCompletionRequest
 {
     public string? Model { get; init; }
+
+    [JsonPropertyName("endpoint_id")]
+    public string? EndpointId { get; init; }
+
     public List<ChatMessageDto> Messages { get; init; } = [];
     public double? Temperature { get; init; }
 

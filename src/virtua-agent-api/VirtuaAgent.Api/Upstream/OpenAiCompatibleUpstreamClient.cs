@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using VirtuaAgent.OpenAi;
 using Microsoft.Extensions.Options;
+using VirtuaAgent.ModelEndpoints;
 
 namespace VirtuaAgent.Upstream;
 
@@ -28,6 +29,18 @@ public sealed class OpenAiCompatibleUpstreamClient : IOpenAiCompatibleUpstreamCl
         return (await response.Content.ReadFromJsonAsync<ModelListResponse>(JsonOptions.Default, cancellationToken))!;
     }
 
+    public async Task<ModelListResponse> ListModelsAsync(ModelEndpointDefinition endpoint, CancellationToken cancellationToken = default)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.ModelListTimeoutSeconds)));
+
+        using var request = CreateRequest(HttpMethod.Get, endpoint, "/v1/models");
+        using var response = await _httpClient.SendAsync(request, timeout.Token);
+        response.EnsureSuccessStatusCode();
+
+        return (await response.Content.ReadFromJsonAsync<ModelListResponse>(JsonOptions.Default, cancellationToken))!;
+    }
+
     public async Task<ChatCompletionResponse> ChatAsync(ChatCompletionRequest request, CancellationToken cancellationToken = default)
     {
         using var response = await _httpClient.PostAsJsonAsync("/v1/chat/completions", request, JsonOptions.Default, cancellationToken);
@@ -36,9 +49,29 @@ public sealed class OpenAiCompatibleUpstreamClient : IOpenAiCompatibleUpstreamCl
         return (await response.Content.ReadFromJsonAsync<ChatCompletionResponse>(JsonOptions.Default, cancellationToken))!;
     }
 
+    public async Task<ChatCompletionResponse> ChatAsync(ChatCompletionRequest request, ModelEndpointDefinition endpoint, CancellationToken cancellationToken = default)
+    {
+        using var httpRequest = CreateRequest(HttpMethod.Post, endpoint, "/v1/chat/completions");
+        httpRequest.Content = JsonContent.Create(request, options: JsonOptions.Default);
+        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        return (await response.Content.ReadFromJsonAsync<ChatCompletionResponse>(JsonOptions.Default, cancellationToken))!;
+    }
+
     public async Task StreamChatAsync(ChatCompletionRequest request, Stream output, CancellationToken cancellationToken = default)
     {
         using var response = await _httpClient.PostAsJsonAsync("/v1/chat/completions", request, JsonOptions.Default, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+        await using var upstreamStream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await upstreamStream.CopyToAsync(output, cancellationToken);
+    }
+
+    public async Task StreamChatAsync(ChatCompletionRequest request, Stream output, ModelEndpointDefinition endpoint, CancellationToken cancellationToken = default)
+    {
+        using var httpRequest = CreateRequest(HttpMethod.Post, endpoint, "/v1/chat/completions");
+        httpRequest.Content = JsonContent.Create(request, options: JsonOptions.Default);
+        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
         await EnsureSuccessAsync(response, cancellationToken);
         await using var upstreamStream = await response.Content.ReadAsStreamAsync(cancellationToken);
         await upstreamStream.CopyToAsync(output, cancellationToken);
@@ -86,6 +119,59 @@ public sealed class OpenAiCompatibleUpstreamClient : IOpenAiCompatibleUpstreamCl
         {
             await onDataAsync(string.Join('\n', dataLines), cancellationToken);
         }
+    }
+
+    public async Task StreamChatAsync(ChatCompletionRequest request, ModelEndpointDefinition endpoint, Func<string, CancellationToken, Task> onDataAsync, CancellationToken cancellationToken = default)
+    {
+        using var httpRequest = CreateRequest(HttpMethod.Post, endpoint, "/v1/chat/completions");
+        httpRequest.Content = new StringContent(JsonSerializer.Serialize(request, JsonOptions.Default), Encoding.UTF8, "application/json");
+        using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var reader = new StreamReader(stream);
+        var dataLines = new List<string>();
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var line = await reader.ReadLineAsync(cancellationToken);
+            if (line is null)
+            {
+                break;
+            }
+
+            if (line.Length == 0)
+            {
+                if (dataLines.Count > 0)
+                {
+                    await onDataAsync(string.Join('\n', dataLines), cancellationToken);
+                    dataLines.Clear();
+                }
+
+                continue;
+            }
+
+            if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            {
+                dataLines.Add(line[5..].TrimStart());
+            }
+        }
+
+        if (dataLines.Count > 0)
+        {
+            await onDataAsync(string.Join('\n', dataLines), cancellationToken);
+        }
+    }
+
+    private static HttpRequestMessage CreateRequest(HttpMethod method, ModelEndpointDefinition endpoint, string path)
+    {
+        var request = new HttpRequestMessage(method, new Uri(new Uri(endpoint.BaseUrl.TrimEnd('/') + "/"), path.TrimStart('/')));
+        if (!string.IsNullOrWhiteSpace(endpoint.ApiKey))
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", endpoint.ApiKey);
+        }
+
+        return request;
     }
 
     private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
