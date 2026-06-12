@@ -1,0 +1,17 @@
+.superpowers/
+.scripts/
+.logs/
+.docs/
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.db
+*.log
+*.pid
+node_modules/
+dist/
+*.tsbuildinfo
+src/virtua-agent-api/wwwroot/ui/
