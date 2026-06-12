@@ -33,6 +33,7 @@ import {
   IconPlus,
   IconSend,
   IconSettings,
+  IconX,
   IconTrash
 } from '@tabler/icons-react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
@@ -88,6 +89,10 @@ const reasoningPanelsKey = 'virtua-agent.chat.reasoning.panels';
 const chatModelSessionKey = 'virtua-agent.chat.model';
 const chatEndpointSessionKey = 'virtua-agent.chat.endpoint';
 const defaultEndpointValue = '__default__';
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
 
 function endpointSelectData(endpoints: ModelEndpoint[]) {
   return [
@@ -198,6 +203,8 @@ function ChatPage() {
   const [runId, setRunId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const cancelRequestedRef = useRef(false);
   const previousReasoningLabelsRef = useRef<string[]>([]);
   const reasoningEntries = Object.entries(reasoningBuckets).filter(([, value]) => value.trim().length > 0);
 
@@ -217,7 +224,7 @@ function ChatPage() {
   useEffect(() => {
     listSavedChatMessages()
       .then((items) => {
-        setMessages(items.map((item) => ({ role: item.role, content: item.content })));
+        setMessages(items.map((item) => ({ role: item.role, content: item.content, metadata: item.metadata })));
         const lastReasoning = [...items].reverse().find((item) => item.reasoning)?.reasoning;
         if (lastReasoning) {
           setReasoningBuckets(lastReasoning);
@@ -276,6 +283,11 @@ function ChatPage() {
     setOpenReasoningPanels([]);
     setRunId(null);
     setBusy(true);
+    cancelRequestedRef.current = false;
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    let assistantContent = '';
+    let finalReasoningBuckets: ReasoningBuckets = {};
 
     try {
       await saveChatMessage({ role: 'user', content }).catch((error) =>
@@ -285,6 +297,7 @@ function ChatPage() {
       const response = await fetch('/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: abortController.signal,
         body: JSON.stringify({ endpoint_id: endpointId, model, stream: true, messages: [userMessage] })
       });
 
@@ -297,9 +310,7 @@ function ChatPage() {
       const decoder = new TextDecoder();
       let buffer = '';
       let rawAssistant = '';
-      let assistantContent = '';
       const streamReasoningBuckets: ReasoningBuckets = {};
-      let finalReasoningBuckets: ReasoningBuckets = {};
 
       while (true) {
         const { done, value } = await reader.read();
@@ -362,12 +373,41 @@ function ChatPage() {
         );
       }
     } catch (error) {
+      if (cancelRequestedRef.current && isAbortError(error)) {
+        if (assistantContent.trim().length > 0) {
+          const canceledAssistant: ChatMessage = {
+            role: 'assistant',
+            content: assistantContent,
+            metadata: { canceled: true }
+          };
+          setMessages([...displayMessages, canceledAssistant]);
+          await saveChatMessage({
+            role: 'assistant',
+            content: assistantContent,
+            reasoning: Object.keys(finalReasoningBuckets).length > 0 ? finalReasoningBuckets : null,
+            metadata: { canceled: true }
+          }).catch((saveError) =>
+            notifications.show({ color: 'red', message: saveError instanceof Error ? saveError.message : 'Failed to save canceled response' })
+          );
+        } else {
+          setMessages(displayMessages);
+        }
+        return;
+      }
+
       const message = error instanceof Error ? error.message : 'Request failed';
       notifications.show({ color: 'red', message });
       setMessages(displayMessages);
     } finally {
+      abortControllerRef.current = null;
+      cancelRequestedRef.current = false;
       setBusy(false);
     }
+  }
+
+  function cancelChat() {
+    cancelRequestedRef.current = true;
+    abortControllerRef.current?.abort();
   }
 
   async function clearChat() {
@@ -428,7 +468,10 @@ function ChatPage() {
             )}
             {messages.map((message, index) => (
               <Box key={`${message.role}-${index}`} className={`message ${message.role}`}>
-                <Text size="xs" c="dimmed" tt="uppercase">{message.role}</Text>
+                <Group gap="xs">
+                  <Text size="xs" c="dimmed" tt="uppercase">{message.role}</Text>
+                  {message.metadata?.canceled && <Badge color="yellow" variant="light">Canceled</Badge>}
+                </Group>
                 <Text className="message-text">{message.content}</Text>
               </Box>
             ))}
@@ -494,8 +537,15 @@ function ChatPage() {
               }
             }}
           />
-          <ActionIcon size={44} radius="md" variant="filled" onClick={() => void send()} loading={busy} aria-label="Send">
-            <IconSend size={20} />
+          <ActionIcon
+            size={44}
+            radius="md"
+            variant="filled"
+            color={busy ? 'red' : undefined}
+            onClick={() => busy ? cancelChat() : void send()}
+            aria-label={busy ? 'Cancel' : 'Send'}
+          >
+            {busy ? <IconX size={20} /> : <IconSend size={20} />}
           </ActionIcon>
         </Group>
       </Paper>
