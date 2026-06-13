@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActionIcon,
+  Alert,
   AppShell,
   Badge,
   Box,
@@ -80,6 +81,12 @@ const emptyModel = (baseModel?: string): VirtuaAgentModel => ({
   }
 });
 
+type ModelLoadError = {
+  endpointId: string | null;
+  label: string;
+  message: string;
+};
+
 export function App() {
   const location = useLocation();
   const nav = [
@@ -126,6 +133,7 @@ function ModelsPage() {
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
   const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({});
   const [upstreamModels, setUpstreamModels] = useState<string[]>([]);
+  const [modelLoadErrors, setModelLoadErrors] = useState<Record<string, ModelLoadError>>({});
   const [items, setItems] = useState<VirtuaAgentModel[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<VirtuaAgentModel>(() => emptyModel());
@@ -150,26 +158,62 @@ function ModelsPage() {
   }, [selected]);
 
   async function refresh() {
-    const [sourceModels, savedEndpoints, VirtuaAgentModels] = await Promise.all([listUpstreamModels(), listModelEndpoints(), listVirtuaAgentModels()]);
-    setEndpoints(savedEndpoints);
-    setUpstreamModels(sourceModels);
-    setEndpointModels((current) => ({ ...current, [defaultEndpointValue]: sourceModels }));
+    const savedModelsPromise = listVirtuaAgentModels();
+    const savedEndpointsPromise = listModelEndpoints();
+
+    const [VirtuaAgentModels, savedEndpoints] = await Promise.all([savedModelsPromise, savedEndpointsPromise]);
     setItems(VirtuaAgentModels);
-    if (!selectedId && VirtuaAgentModels[0]) setSelectedId(VirtuaAgentModels[0].id);
+    setEndpoints(savedEndpoints);
+
+    if (!selectedId && VirtuaAgentModels[0]) {
+      setSelectedId(VirtuaAgentModels[0].id);
+    }
+
+    const sourceModels = await loadModelsForEndpoint(null, { force: true });
     if (!selectedId && !VirtuaAgentModels[0]) setDraft(emptyModel(sourceModels[0]));
   }
 
-  async function loadModelsForEndpoint(endpointId?: string | null) {
+  async function loadModelsForEndpoint(endpointId?: string | null, options?: { force?: boolean }) {
     const key = endpointValue(endpointId);
-    if (endpointModels[key]) return endpointModels[key];
+    if (!options?.force && endpointModels[key]) return endpointModels[key];
 
-    const models = endpointId ? await listEndpointModels(endpointId) : await listUpstreamModels();
-    setEndpointModels((current) => ({ ...current, [key]: models }));
-    return models;
+    try {
+      const models = endpointId ? await listEndpointModels(endpointId) : await listUpstreamModels();
+      setEndpointModels((current) => ({ ...current, [key]: models }));
+      if (!endpointId) setUpstreamModels(models);
+      setModelLoadErrors((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      return models;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load models';
+      setModelLoadErrors((current) => ({
+        ...current,
+        [key]: {
+          endpointId: endpointId ?? null,
+          label: endpointLabel(endpointId),
+          message
+        }
+      }));
+      return endpointModels[key] ?? [];
+    }
   }
 
-  function modelsForEndpoint(endpointId?: string | null) {
-    return endpointModels[endpointValue(endpointId)] ?? (endpointId ? [] : upstreamModels);
+  function endpointLabel(endpointId?: string | null) {
+    if (!endpointId) return 'Default upstream';
+    return endpoints.find((endpoint) => endpoint.id === endpointId)?.name ?? endpointId;
+  }
+
+  function modelsForEndpoint(endpointId?: string | null, selectedModel?: string | null) {
+    const models = endpointModels[endpointValue(endpointId)] ?? (endpointId ? [] : upstreamModels);
+    return selectedModel && !models.includes(selectedModel) ? [selectedModel, ...models] : models;
+  }
+
+  async function retryModelDiscovery() {
+    const errors = Object.values(modelLoadErrors);
+    await Promise.all(errors.map((error) => loadModelsForEndpoint(error.endpointId, { force: true })));
   }
 
   function updateStage(index: number, stage: PipelineStage) {
@@ -210,6 +254,24 @@ function ModelsPage() {
         </Button>
       </Group>
 
+      {Object.keys(modelLoadErrors).length > 0 && (
+        <Alert color="yellow" title="Model discovery unavailable">
+          <Stack gap="xs">
+            <Text size="sm">Saved Virtua Agent models are still available. Live model lists could not be loaded.</Text>
+            {Object.values(modelLoadErrors).map((error) => (
+              <Text key={endpointValue(error.endpointId)} size="sm">
+                {error.label}: {error.message}
+              </Text>
+            ))}
+            <Group>
+              <Button size="xs" variant="light" onClick={() => void retryModelDiscovery()}>
+                Retry
+              </Button>
+            </Group>
+          </Stack>
+        </Alert>
+      )}
+
       <Box className="models-grid">
         <Paper withBorder p="sm">
           <Stack gap={4}>
@@ -247,7 +309,7 @@ function ModelsPage() {
               />
               <Select
                 label="Default model"
-                data={modelsForEndpoint(draft.pipeline.default_endpoint_id)}
+                data={modelsForEndpoint(draft.pipeline.default_endpoint_id, draft.pipeline.default_model)}
                 value={draft.pipeline.default_model ?? null}
                 searchable
                 onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_model: value } })}
@@ -312,7 +374,7 @@ function ModelsPage() {
                         placeholder="Use default model"
                         clearable
                         searchable
-                        data={modelsForEndpoint(stage.agent?.endpoint_id)}
+                        data={modelsForEndpoint(stage.agent?.endpoint_id, stage.agent?.model)}
                         value={stage.agent?.model ?? null}
                         onChange={(value) => updateStage(index, { ...stage, agent: { ...stage.agent, model: value } })}
                       />

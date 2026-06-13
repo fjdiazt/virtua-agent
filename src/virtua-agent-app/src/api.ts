@@ -6,6 +6,8 @@ import type {
   VirtuaAgentModel
 } from './types';
 
+const modelDiscoveryTimeoutMs = 8000;
+
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const text = await response.text();
@@ -30,6 +32,23 @@ function errorMessageFrom(text: string, status: number) {
   return text;
 }
 
+async function fetchModelDiscovery(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), modelDiscoveryTimeoutMs);
+
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`Model discovery timed out after ${modelDiscoveryTimeoutMs / 1000} seconds.`);
+    }
+
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export async function listUpstreamModels(): Promise<string[]> {
   const models = await listModelDtos();
   return models
@@ -39,13 +58,13 @@ export async function listUpstreamModels(): Promise<string[]> {
 }
 
 export async function listEndpointModels(endpointId: string): Promise<string[]> {
-  const response = await fetch(`/v1/model-endpoints/${endpointId}/models`);
+  const response = await fetchModelDiscovery(`/v1/model-endpoints/${endpointId}/models`);
   const body = await readJson<ModelListResponse>(response);
   return body.data.map((model) => model.id).filter(Boolean);
 }
 
 async function listModelDtos(): Promise<ModelDto[]> {
-  const response = await fetch('/v1/models');
+  const response = await fetchModelDiscovery('/v1/models');
   const body = await readJson<ModelListResponse>(response);
   return body.data;
 }
