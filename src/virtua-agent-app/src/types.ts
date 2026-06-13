@@ -23,29 +23,6 @@ export type SaveModelEndpointRequest = {
   api_key?: string | null;
 };
 
-export type ChatMessage = {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-  metadata?: ChatMessageMetadata | null;
-};
-
-export type ChatMessageMetadata = {
-  canceled?: boolean;
-};
-
-export type SavedChatMessage = ChatMessage & {
-  id: string;
-  reasoning?: Record<string, string> | null;
-  created_at: string;
-};
-
-export type SaveChatMessageRequest = {
-  role: 'user' | 'assistant';
-  content: string;
-  reasoning?: Record<string, string> | null;
-  metadata?: ChatMessageMetadata | null;
-};
-
 export type AgentRequest = {
   endpoint_id?: string | null;
   model?: string | null;

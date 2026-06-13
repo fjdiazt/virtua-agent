@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActionIcon,
-  Accordion,
   AppShell,
   Badge,
   Box,
@@ -13,7 +12,6 @@ import {
   NavLink,
   NumberInput,
   Paper,
-  ScrollArea,
   Select,
   Stack,
   Text,
@@ -27,72 +25,25 @@ import {
   IconBook2,
   IconBrandOpenai,
   IconChevronRight,
-  IconChevronDown,
-  IconChevronUp,
-  IconMessageCircle,
   IconPlus,
-  IconSend,
   IconSettings,
-  IconX,
   IconTrash
 } from '@tabler/icons-react';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import logoUrl from '../../../assets/logo.png';
 import {
-  clearSavedChatMessages,
   deleteModelEndpoint,
   deleteVirtuaAgentModel,
   listEndpointModels,
   listModelEndpoints,
-  listSavedChatMessages,
   listVirtuaAgentModels,
-  listModels,
   listUpstreamModels,
-  saveChatMessage,
   saveModelEndpoint,
   saveVirtuaAgentModel
 } from './api';
-import type { ChatMessage, ModelEndpoint, SaveModelEndpointRequest, VirtuaAgentModel, PipelineStage } from './types';
+import type { ModelEndpoint, SaveModelEndpointRequest, VirtuaAgentModel, PipelineStage } from './types';
 
-function splitThinkBlocks(raw: string) {
-  let answer = '';
-  let reasoning = '';
-  let remaining = raw;
-
-  while (remaining.length > 0) {
-    const openMatch = remaining.match(/<think>/i);
-    if (!openMatch || openMatch.index === undefined) {
-      answer += remaining;
-      break;
-    }
-
-    answer += remaining.slice(0, openMatch.index);
-    const afterOpenIndex = openMatch.index + openMatch[0].length;
-    const afterOpen = remaining.slice(afterOpenIndex);
-    const closeMatch = afterOpen.match(/<\/think>/i);
-    if (!closeMatch || closeMatch.index === undefined) {
-      reasoning += afterOpen;
-      break;
-    }
-
-    reasoning += afterOpen.slice(0, closeMatch.index);
-    remaining = afterOpen.slice(closeMatch.index + closeMatch[0].length);
-  }
-
-  return { answer: answer.trimStart(), reasoning };
-}
-
-type ReasoningBuckets = Record<string, string>;
-
-const reasoningOpenKey = 'virtua-agent.chat.reasoning.open';
-const reasoningPanelsKey = 'virtua-agent.chat.reasoning.panels';
-const chatModelSessionKey = 'virtua-agent.chat.model';
-const chatEndpointSessionKey = 'virtua-agent.chat.endpoint';
 const defaultEndpointValue = '__default__';
-
-function isAbortError(error: unknown) {
-  return error instanceof DOMException && error.name === 'AbortError';
-}
 
 function endpointSelectData(endpoints: ModelEndpoint[]) {
   return [
@@ -107,23 +58,6 @@ function endpointValue(endpointId?: string | null) {
 
 function endpointIdFromValue(value: string | null) {
   return value === defaultEndpointValue ? null : value;
-}
-
-function readSessionBool(key: string, fallback: boolean) {
-  const value = sessionStorage.getItem(key);
-  return value === null ? fallback : value === 'true';
-}
-
-function readSessionStringArray(key: string) {
-  const value = sessionStorage.getItem(key);
-  if (!value) return [];
-
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
-  } catch {
-    return [];
-  }
 }
 
 const emptyStage = (): PipelineStage => ({
@@ -149,7 +83,6 @@ const emptyModel = (baseModel?: string): VirtuaAgentModel => ({
 export function App() {
   const location = useLocation();
   const nav = [
-    { label: 'Chat', icon: IconMessageCircle, to: '/chat' },
     { label: 'Models', icon: IconBrandOpenai, to: '/models' },
     { label: 'Runs', icon: IconActivity, to: '/runs' },
     { label: 'Settings', icon: IconSettings, to: '/settings' }
@@ -179,377 +112,13 @@ export function App() {
       </AppShell.Navbar>
       <AppShell.Main>
         <Routes>
-          <Route path="/" element={<Navigate to="/chat" replace />} />
-          <Route path="/chat" element={<ChatPage />} />
+          <Route path="/" element={<Navigate to="/models" replace />} />
           <Route path="/models" element={<ModelsPage />} />
           <Route path="/runs" element={<RunsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </AppShell.Main>
     </AppShell>
-  );
-}
-
-function ChatPage() {
-  const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
-  const [endpointId, setEndpointId] = useState<string | null>(() => endpointIdFromValue(sessionStorage.getItem(chatEndpointSessionKey)));
-  const [models, setModels] = useState<string[]>([]);
-  const [model, setModel] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState('');
-  const [reasoningBuckets, setReasoningBuckets] = useState<ReasoningBuckets>({});
-  const [reasoningOpen, setReasoningOpen] = useState(() => readSessionBool(reasoningOpenKey, true));
-  const [openReasoningPanels, setOpenReasoningPanels] = useState<string[]>(() => readSessionStringArray(reasoningPanelsKey));
-  const [runId, setRunId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const cancelRequestedRef = useRef(false);
-  const previousReasoningLabelsRef = useRef<string[]>([]);
-  const reasoningEntries = Object.entries(reasoningBuckets).filter(([, value]) => value.trim().length > 0);
-
-  async function loadChatModels(nextEndpointId: string | null) {
-    const items = nextEndpointId ? await listEndpointModels(nextEndpointId) : await listModels();
-    setModels(items);
-    const savedModel = sessionStorage.getItem(chatModelSessionKey);
-    setModel((current) => current && items.includes(current) ? current : savedModel && items.includes(savedModel) ? savedModel : items[0] ?? null);
-  }
-
-  useEffect(() => {
-    listModelEndpoints()
-      .then(setEndpoints)
-      .catch((error) => notifications.show({ color: 'red', message: error.message }));
-  }, []);
-
-  useEffect(() => {
-    listSavedChatMessages()
-      .then((items) => {
-        setMessages(items.map((item) => ({ role: item.role, content: item.content, metadata: item.metadata })));
-        const lastReasoning = [...items].reverse().find((item) => item.reasoning)?.reasoning;
-        if (lastReasoning) {
-          setReasoningBuckets(lastReasoning);
-          setOpenReasoningPanels(Object.keys(lastReasoning));
-        }
-      })
-      .catch((error) => notifications.show({ color: 'red', message: error.message }));
-  }, []);
-
-  useEffect(() => {
-    loadChatModels(endpointId).catch((error) => notifications.show({ color: 'red', message: error.message }));
-  }, [endpointId]);
-
-  useEffect(() => {
-    sessionStorage.setItem(chatEndpointSessionKey, endpointValue(endpointId));
-  }, [endpointId]);
-
-  useEffect(() => {
-    if (model) {
-      sessionStorage.setItem(chatModelSessionKey, model);
-    }
-  }, [model]);
-
-  useEffect(() => {
-    viewportRef.current?.scrollTo({ top: viewportRef.current.scrollHeight });
-  }, [messages, reasoningBuckets]);
-
-  useEffect(() => {
-    const previousLabels = previousReasoningLabelsRef.current;
-    setOpenReasoningPanels((current) => {
-      const labels = reasoningEntries.map(([label]) => label);
-      const newLabels = labels.filter((label) => !previousLabels.includes(label));
-      return Array.from(new Set([...current.filter((label) => labels.includes(label)), ...newLabels]));
-    });
-    previousReasoningLabelsRef.current = reasoningEntries.map(([label]) => label);
-  }, [reasoningEntries.map(([label]) => label).join('|')]);
-
-  useEffect(() => {
-    sessionStorage.setItem(reasoningOpenKey, String(reasoningOpen));
-  }, [reasoningOpen]);
-
-  useEffect(() => {
-    sessionStorage.setItem(reasoningPanelsKey, JSON.stringify(openReasoningPanels));
-  }, [openReasoningPanels]);
-
-  async function send() {
-    const content = input.trim();
-    if (!content || !model || busy) return;
-
-    const userMessage: ChatMessage = { role: 'user', content };
-    const displayMessages: ChatMessage[] = [...messages, userMessage];
-    setMessages([...displayMessages, { role: 'assistant', content: '' }]);
-    setInput('');
-    setReasoningBuckets({});
-    previousReasoningLabelsRef.current = [];
-    setOpenReasoningPanels([]);
-    setRunId(null);
-    setBusy(true);
-    cancelRequestedRef.current = false;
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-    let assistantContent = '';
-    let finalReasoningBuckets: ReasoningBuckets = {};
-
-    try {
-      await saveChatMessage({ role: 'user', content }).catch((error) =>
-        notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Failed to save chat message' })
-      );
-
-      const response = await fetch('/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: abortController.signal,
-        body: JSON.stringify({ endpoint_id: endpointId, model, stream: true, messages: [userMessage] })
-      });
-
-      if (!response.ok || !response.body) {
-        throw new Error(await response.text());
-      }
-
-      setRunId(response.headers.get('Virtua-Agent-Run-Id'));
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let rawAssistant = '';
-      const streamReasoningBuckets: ReasoningBuckets = {};
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop() ?? '';
-
-        for (const part of parts) {
-          const line = part.split('\n').find((item) => item.startsWith('data: '));
-          if (!line) continue;
-          const data = line.slice(6).trim();
-          if (data === '[DONE]') continue;
-
-          const chunk = JSON.parse(data);
-          const delta = chunk.choices?.[0]?.delta ?? {};
-          const contentDelta = delta.content ?? '';
-          const reasoningDelta =
-            delta.reasoning ??
-            delta.reasoning_content ??
-            delta.reasoning_text ??
-            delta.thinking ??
-            '';
-          const virtuaAgentLabel = delta.virtua_agent?.label;
-          const reasoningLabel = typeof virtuaAgentLabel === 'string' && virtuaAgentLabel.trim().length > 0
-            ? virtuaAgentLabel
-            : 'Model reasoning';
-
-          if (reasoningDelta) {
-            streamReasoningBuckets[reasoningLabel] = (streamReasoningBuckets[reasoningLabel] ?? '') + reasoningDelta;
-          }
-
-          if (contentDelta) {
-            rawAssistant += contentDelta;
-          }
-
-          if (reasoningDelta || contentDelta) {
-            const parsed = splitThinkBlocks(rawAssistant);
-            const nextReasoningBuckets = { ...streamReasoningBuckets };
-            if (parsed.reasoning.trim().length > 0) {
-              nextReasoningBuckets['Model reasoning'] = parsed.reasoning;
-            }
-
-            assistantContent = parsed.answer;
-            finalReasoningBuckets = nextReasoningBuckets;
-            setReasoningBuckets(nextReasoningBuckets);
-            setMessages([...displayMessages, { role: 'assistant', content: parsed.answer }]);
-          }
-        }
-      }
-
-      if (assistantContent.trim().length > 0) {
-        await saveChatMessage({
-          role: 'assistant',
-          content: assistantContent,
-          reasoning: Object.keys(finalReasoningBuckets).length > 0 ? finalReasoningBuckets : null
-        }).catch((error) =>
-          notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Failed to save chat response' })
-        );
-      }
-    } catch (error) {
-      if (cancelRequestedRef.current && isAbortError(error)) {
-        if (assistantContent.trim().length > 0) {
-          const canceledAssistant: ChatMessage = {
-            role: 'assistant',
-            content: assistantContent,
-            metadata: { canceled: true }
-          };
-          setMessages([...displayMessages, canceledAssistant]);
-          await saveChatMessage({
-            role: 'assistant',
-            content: assistantContent,
-            reasoning: Object.keys(finalReasoningBuckets).length > 0 ? finalReasoningBuckets : null,
-            metadata: { canceled: true }
-          }).catch((saveError) =>
-            notifications.show({ color: 'red', message: saveError instanceof Error ? saveError.message : 'Failed to save canceled response' })
-          );
-        } else {
-          setMessages(displayMessages);
-        }
-        return;
-      }
-
-      const message = error instanceof Error ? error.message : 'Request failed';
-      notifications.show({ color: 'red', message });
-      setMessages(displayMessages);
-    } finally {
-      abortControllerRef.current = null;
-      cancelRequestedRef.current = false;
-      setBusy(false);
-    }
-  }
-
-  function cancelChat() {
-    cancelRequestedRef.current = true;
-    abortControllerRef.current?.abort();
-  }
-
-  async function clearChat() {
-    try {
-      await clearSavedChatMessages();
-      setMessages([]);
-      setReasoningBuckets({});
-      previousReasoningLabelsRef.current = [];
-      setOpenReasoningPanels([]);
-      setRunId(null);
-    } catch (error) {
-      notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Failed to clear chat' });
-    }
-  }
-
-  return (
-    <Stack className="chat-page" gap="md">
-      <Group justify="space-between" align="center">
-        <Box>
-          <Title order={2}>Chat</Title>
-          <Text c="dimmed">Transient API test chat. Session memory only.</Text>
-        </Box>
-        <Group align="end">
-          <Select
-            w={220}
-            searchable
-            label="Endpoint"
-            data={endpointSelectData(endpoints)}
-            value={endpointValue(endpointId)}
-            onChange={(value) => {
-              setEndpointId(endpointIdFromValue(value));
-              setModel(null);
-            }}
-          />
-          <Select
-            w={360}
-            searchable
-            label="Model"
-            data={models}
-            value={model}
-            onChange={setModel}
-            placeholder="Select model"
-          />
-          <Button variant="light" color="red" leftSection={<IconTrash size={16} />} onClick={() => void clearChat()}>
-            Clear chat
-          </Button>
-        </Group>
-      </Group>
-
-      <Paper className={`chat-surface ${reasoningEntries.length > 0 && reasoningOpen ? 'has-reasoning' : ''}`} withBorder>
-        <ScrollArea viewportRef={viewportRef} className="chat-scroll">
-          <Stack gap="md" p="md">
-            {messages.length === 0 && (
-              <Box className="empty-state">
-                <Title order={3}>No messages yet.</Title>
-                <Text c="dimmed">Pick upstream or Virtua Agent model, send prompt, inspect response.</Text>
-              </Box>
-            )}
-            {messages.map((message, index) => (
-              <Box key={`${message.role}-${index}`} className={`message ${message.role}`}>
-                <Group gap="xs">
-                  <Text size="xs" c="dimmed" tt="uppercase">{message.role}</Text>
-                  {message.metadata?.canceled && <Badge color="yellow" variant="light">Canceled</Badge>}
-                </Group>
-                <Text className="message-text">{message.content}</Text>
-              </Box>
-            ))}
-            {busy && <Loader size="sm" />}
-          </Stack>
-        </ScrollArea>
-
-        {reasoningEntries.length > 0 && (
-          <Box className="reasoning">
-            <Group justify="space-between">
-              <Text fw={600}>Reasoning streams</Text>
-              <Group gap="xs">
-                {runId && <Badge variant="light">{runId}</Badge>}
-                <ActionIcon
-                  variant="subtle"
-                  aria-label={reasoningOpen ? 'Collapse reasoning streams' : 'Expand reasoning streams'}
-                  onClick={() => setReasoningOpen((value) => !value)}
-                >
-                  {reasoningOpen ? <IconChevronUp size={18} /> : <IconChevronDown size={18} />}
-                </ActionIcon>
-              </Group>
-            </Group>
-            {reasoningOpen && (
-              <Accordion
-                className="reasoning-accordion"
-                classNames={{ content: 'reasoning-content' }}
-                variant="contained"
-                multiple
-                value={openReasoningPanels}
-                onChange={setOpenReasoningPanels}
-                mt="sm"
-              >
-                {reasoningEntries.map(([label, value]) => (
-                  <Accordion.Item
-                    className={`reasoning-item ${openReasoningPanels.includes(label) ? 'open' : ''}`}
-                    key={label}
-                    value={label}
-                  >
-                    <Accordion.Control>{label}</Accordion.Control>
-                    <Accordion.Panel className="reasoning-panel">
-                      <Text size="sm" className="reasoning-text">{value}</Text>
-                    </Accordion.Panel>
-                  </Accordion.Item>
-                ))}
-              </Accordion>
-            )}
-          </Box>
-        )}
-
-        <Group p="md" align="end">
-          <Textarea
-            className="composer"
-            autosize
-            minRows={2}
-            maxRows={8}
-            placeholder="Message Virtua Agent API"
-            value={input}
-            onChange={(event) => setInput(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                void send();
-              }
-            }}
-          />
-          <ActionIcon
-            size={44}
-            radius="md"
-            variant="filled"
-            color={busy ? 'red' : undefined}
-            onClick={() => busy ? cancelChat() : void send()}
-            aria-label={busy ? 'Cancel' : 'Send'}
-          >
-            {busy ? <IconX size={20} /> : <IconSend size={20} />}
-          </ActionIcon>
-        </Group>
-      </Paper>
-    </Stack>
   );
 }
 
@@ -871,7 +440,7 @@ function SettingsPage() {
       <Group justify="space-between">
         <Box>
           <Title order={2}>Settings</Title>
-          <Text c="dimmed">OpenAI-compatible endpoints for chat and pipeline stages.</Text>
+          <Text c="dimmed">OpenAI-compatible endpoints for pipeline stages.</Text>
         </Box>
         <Button leftSection={<IconPlus size={16} />} onClick={() => { setSelectedId(null); setDraft({ name: '', base_url: '', api_key: '' }); setModels([]); }}>
           New endpoint

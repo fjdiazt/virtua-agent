@@ -2,8 +2,6 @@ import type {
   ModelDto,
   ModelEndpoint,
   ModelListResponse,
-  SaveChatMessageRequest,
-  SavedChatMessage,
   SaveModelEndpointRequest,
   VirtuaAgentModel
 } from './types';
@@ -30,11 +28,6 @@ function errorMessageFrom(text: string, status: number) {
   }
 
   return text;
-}
-
-export async function listModels(): Promise<string[]> {
-  const models = await listModelDtos();
-  return models.map((model) => model.id).filter(Boolean);
 }
 
 export async function listUpstreamModels(): Promise<string[]> {
@@ -78,27 +71,6 @@ export async function saveModelEndpoint(endpoint: SaveModelEndpointRequest): Pro
 
 export async function deleteModelEndpoint(id: string): Promise<void> {
   const response = await fetch(`/v1/model-endpoints/${id}`, { method: 'DELETE' });
-  if (!response.ok) {
-    throw new Error(errorMessageFrom(await response.text(), response.status));
-  }
-}
-
-export async function listSavedChatMessages(): Promise<SavedChatMessage[]> {
-  const response = await fetch('/v1/chat-sessions/current/messages');
-  return readJson<SavedChatMessage[]>(response);
-}
-
-export async function saveChatMessage(message: SaveChatMessageRequest): Promise<SavedChatMessage> {
-  const response = await fetch('/v1/chat-sessions/current/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(message)
-  });
-  return readJson<SavedChatMessage>(response);
-}
-
-export async function clearSavedChatMessages(): Promise<void> {
-  const response = await fetch('/v1/chat-sessions/current/messages', { method: 'DELETE' });
   if (!response.ok) {
     throw new Error(errorMessageFrom(await response.text(), response.status));
   }

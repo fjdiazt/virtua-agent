@@ -24,7 +24,7 @@ This repository contains a local-first OpenAI-compatible orchestration API built
 - `npm run build --prefix src/virtua-agent-app` builds the app into the API `wwwroot/app` folder.
 - `docker compose up -d --build` builds the UI, publishes the API, and runs the app on `http://localhost:4000` by default.
 
-After starting the app, check `/swagger` for API exploration and `/app/chat` for the built-in chat interface. Configure the upstream OpenAI-compatible server in `src/virtua-agent-api/VirtuaAgent.Api/appsettings.json` or `appsettings.Development.json`.
+After starting the app, check `/swagger` for API exploration and `/app/models` for the built-in model workbench. Configure the upstream OpenAI-compatible server in `src/virtua-agent-api/VirtuaAgent.Api/appsettings.json` or `appsettings.Development.json`.
 
 ## Coding Style & Naming Conventions
 

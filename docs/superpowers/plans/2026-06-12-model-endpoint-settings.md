@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add persisted OpenAI-compatible endpoint settings and endpoint-aware model selection for chat and pipeline stages.
+**Goal:** Add persisted OpenAI-compatible endpoint settings and endpoint-aware model selection for pipeline stages.
 
 **Architecture:** Add a focused `ModelEndpoints` backend module backed by SQLite. Refactor upstream calls through a resolver so existing default upstream behavior stays intact while requests can specify `endpoint_id`. Update React app selectors to choose endpoint first, then load live models from that endpoint.
 
@@ -22,7 +22,7 @@
 - Modify `src/virtua-agent-api/VirtuaAgent.Api/PipelineModels/VirtuaAgentDtos.cs`: add `endpoint_id` to agents and pipeline defaults.
 - Modify `src/virtua-agent-api/VirtuaAgent.Api/Orchestration/PipelineModels.cs`: carry default endpoint.
 - Modify `src/virtua-agent-api/VirtuaAgent.Api/Orchestration/PipelineExecutor.cs`: route stages through selected endpoint.
-- Modify `src/virtua-agent-api/VirtuaAgent.Api/Endpoints/ChatCompletionsEndpoint.cs`: route top-level chat through selected endpoint.
+- Modify `src/virtua-agent-api/VirtuaAgent.Api/Endpoints/ChatCompletionsEndpoint.cs`: route top-level OpenAI-compatible requests through selected endpoint.
 - Modify `src/virtua-agent-app/src/types.ts`: endpoint and endpoint id types.
 - Modify `src/virtua-agent-app/src/api.ts`: endpoint CRUD/model APIs.
 - Modify `src/virtua-agent-app/src/App.tsx`: Settings page, endpoint/model selectors.
@@ -49,10 +49,10 @@
 
 ### Task 3: Endpoint-Aware Upstream Routing
 
-- [ ] Add `endpoint_id` to chat and pipeline DTOs.
+- [ ] Add `endpoint_id` to top-level request and pipeline DTOs.
 - [ ] Refactor upstream client to accept endpoint config per call.
 - [ ] Preserve current default upstream when `endpoint_id` is absent.
-- [ ] Add chat and pipeline routing tests.
+- [ ] Add top-level request and pipeline routing tests.
 - [ ] Run `dotnet test src/virtua-agent-api/VirtuaAgent.slnx -p:UseAppHost=false`.
 - [ ] Commit `feat: route requests by model endpoint`.
 
@@ -65,12 +65,11 @@
 - [ ] Run `npm run build --prefix src/virtua-agent-app`.
 - [ ] Commit `feat: add endpoint settings page`.
 
-### Task 5: Endpoint Selectors In Chat And Stage Forms
+### Task 5: Endpoint Selectors In Stage Forms
 
-- [ ] Update Chat page to select endpoint then model.
 - [ ] Update pipeline default form to select endpoint then model.
 - [ ] Update stage form to select endpoint then model.
-- [ ] Send `endpoint_id` in chat and pipeline save payloads.
+- [ ] Save `endpoint_id` in pipeline payloads.
 - [ ] Run `npm run build --prefix src/virtua-agent-app`.
 - [ ] Run `dotnet test src/virtua-agent-api/VirtuaAgent.slnx -p:UseAppHost=false`.
 - [ ] Commit `feat: select endpoint per model`.

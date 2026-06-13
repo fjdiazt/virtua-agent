@@ -2,7 +2,7 @@
 
 ## Goal
 
-Add a Settings page where users can manage OpenAI-compatible model endpoints, then select endpoint and model pairs in chat and Virtua Agent stage forms.
+Add a Settings page where users can manage OpenAI-compatible model endpoints, then select endpoint and model pairs in Virtua Agent stage forms.
 
 ## Decisions
 
@@ -10,7 +10,7 @@ Add a Settings page where users can manage OpenAI-compatible model endpoints, th
 - Support optional API keys. `llama.cpp` usually runs without one, but hosted or proxied endpoints often need bearer auth.
 - Store stage model selection as `endpoint_id` plus `model`, not as a combined string. This avoids ambiguity when multiple endpoints expose the same model id.
 - Use live `/v1/models` calls when the Settings page opens or an endpoint is selected. No cached model list in this version.
-- Apply endpoint selection to both Chat page model choice and Virtua Agent stage forms.
+- Apply endpoint selection to Virtua Agent stage forms.
 
 ## Backend Shape
 
@@ -29,7 +29,7 @@ Add endpoints:
 - `DELETE /v1/model-endpoints/{id}`: delete one endpoint.
 - `GET /v1/model-endpoints/{id}/models`: call that endpoint's `/v1/models` live.
 
-The existing configured `Upstream` remains available as a default endpoint for backward compatibility. Chat and pipeline requests without `endpoint_id` continue to use the default upstream.
+The existing configured `Upstream` remains available as a default endpoint for backward compatibility. Pipeline requests without `endpoint_id` continue to use the default upstream.
 
 ## Request Model Changes
 
@@ -47,7 +47,7 @@ Pipeline execution resolves model in this order:
 2. pipeline default `model`
 3. validation error if neither exists
 
-Top-level chat requests may also carry an optional endpoint id through an extension field so the Chat page can call a selected endpoint directly.
+Top-level OpenAI-compatible requests may also carry an optional endpoint id through an extension field so callers can target a selected endpoint directly.
 
 ## UI Shape
 
@@ -57,12 +57,6 @@ Add a Settings nav item and page:
 - edit `Name`, `Base URL`, and optional `API key`
 - save/delete endpoints
 - refresh/view live models for selected endpoint
-
-Update Chat:
-
-- model selector becomes endpoint selector plus model selector
-- model list loads from selected endpoint
-- chat request sends selected endpoint id and model
 
 Update Models:
 
@@ -83,7 +77,7 @@ Backend tests cover:
 
 - endpoint CRUD omits API keys from responses
 - endpoint model listing calls the selected base URL
-- chat can route to a selected endpoint
+- top-level OpenAI-compatible requests can route to a selected endpoint
 - pipeline stage can route to a selected endpoint
 - missing endpoint id returns a clear error
 
