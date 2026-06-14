@@ -10,11 +10,14 @@ import {
   Divider,
   Group,
   Loader,
+  Modal,
   NavLink,
   NumberInput,
   Paper,
   Select,
   Stack,
+  Tabs,
+  Table,
   Text,
   Textarea,
   TextInput,
@@ -30,6 +33,7 @@ import {
   IconSettings,
   IconTrash
 } from '@tabler/icons-react';
+import { useMediaQuery } from '@mantine/hooks';
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import logoUrl from '../../../assets/logo.png';
 import {
@@ -130,12 +134,14 @@ export function App() {
 }
 
 function ModelsPage() {
+  const isSmall = useMediaQuery('(max-width: 700px)');
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
   const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({});
   const [upstreamModels, setUpstreamModels] = useState<string[]>([]);
   const [modelLoadErrors, setModelLoadErrors] = useState<Record<string, ModelLoadError>>({});
   const [items, setItems] = useState<VirtuaAgentModel[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
   const [draft, setDraft] = useState<VirtuaAgentModel>(() => emptyModel());
 
   const selected = useMemo(
@@ -226,6 +232,22 @@ function ModelsPage() {
     }));
   }
 
+  function openModel(model: VirtuaAgentModel) {
+    setSelectedId(model.id);
+    setDraft(structuredClone(model));
+    setEditorOpen(true);
+    void loadModelsForEndpoint(model.pipeline.default_endpoint_id);
+    model.pipeline.stages.forEach((stage) => {
+      void loadModelsForEndpoint(stage.agent?.endpoint_id);
+    });
+  }
+
+  function newModel() {
+    setSelectedId(null);
+    setDraft(emptyModel(upstreamModels[0]));
+    setEditorOpen(true);
+  }
+
   async function save() {
     const saved = await saveVirtuaAgentModel(draft);
     notifications.show({ color: 'green', message: `Saved ${saved.id}` });
@@ -239,6 +261,7 @@ function ModelsPage() {
     notifications.show({ color: 'green', message: `Deleted ${draft.id}` });
     setSelectedId(null);
     setDraft(emptyModel(upstreamModels[0]));
+    setEditorOpen(false);
     await refresh();
   }
 
@@ -249,7 +272,7 @@ function ModelsPage() {
           <Title order={2}>Virtua Agent Models</Title>
           <Text c="dimmed">Pipeline-backed models exposed through `/v1/models`.</Text>
         </Box>
-        <Button leftSection={<IconPlus size={16} />} onClick={() => { setSelectedId(null); setDraft(emptyModel(upstreamModels[0])); }}>
+        <Button leftSection={<IconPlus size={16} />} onClick={newModel}>
           New model
         </Button>
       </Group>
@@ -272,24 +295,45 @@ function ModelsPage() {
         </Alert>
       )}
 
-      <Box className="models-grid">
-        <Paper withBorder p="sm">
-          <Stack gap={4}>
-            {items.map((item) => (
-              <NavLink
-                key={item.id}
-                active={item.id === selectedId}
-                label={item.id}
-                leftSection={<IconBrandOpenai size={18} />}
-                onClick={() => setSelectedId(item.id)}
-              />
-            ))}
-            {items.length === 0 && <Text c="dimmed" p="sm">No Virtua Agent Models saved.</Text>}
-          </Stack>
-        </Paper>
+      <Paper withBorder>
+        <Box className="table-scroll">
+          <Table verticalSpacing="sm" highlightOnHover>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Model</Table.Th>
+                <Table.Th>Default model</Table.Th>
+                <Table.Th>Stages</Table.Th>
+                <Table.Th className="optional-column">Default endpoint</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {items.map((item) => (
+                <Table.Tr key={item.id} className="clickable-row" onClick={() => openModel(item)}>
+                  <Table.Td><Text fw={600} className="cell-wrap">{item.id}</Text></Table.Td>
+                  <Table.Td><Text className="cell-wrap">{item.pipeline.default_model ?? 'Unset'}</Text></Table.Td>
+                  <Table.Td><Badge variant="light">{item.pipeline.stages.length}</Badge></Table.Td>
+                  <Table.Td className="optional-column"><Text className="cell-wrap">{endpointLabel(item.pipeline.default_endpoint_id)}</Text></Table.Td>
+                </Table.Tr>
+              ))}
+              {items.length === 0 && (
+                <Table.Tr>
+                  <Table.Td colSpan={4}><Text c="dimmed" p="sm">No Virtua Agent Models saved.</Text></Table.Td>
+                </Table.Tr>
+              )}
+            </Table.Tbody>
+          </Table>
+        </Box>
+      </Paper>
 
-        <Paper withBorder p="lg">
-          <Stack>
+      <Modal
+        opened={editorOpen}
+        onClose={() => setEditorOpen(false)}
+        title={selectedId ? `Edit ${selectedId}` : 'New Virtua Agent model'}
+        size="95%"
+        fullScreen={isSmall}
+        centered={!isSmall}
+      >
+        <Stack>
             <Group grow align="end">
               <TextInput
                 label="Model id"
@@ -424,9 +468,8 @@ function ModelsPage() {
                 </Button>
               </Group>
             </Group>
-          </Stack>
-        </Paper>
-      </Box>
+        </Stack>
+      </Modal>
     </Stack>
   );
 }
@@ -577,16 +620,63 @@ function SettingsPage() {
   );
 }
 
+type RunTraceEvent = {
+  type: string;
+  json: string;
+  createdAt?: string;
+};
+
+type RunReasoning = {
+  stageIndex: number;
+  executionIndex: number;
+  iterationIndex: number;
+  label: string;
+  content: string;
+};
+
+type RunRecord = {
+  runId: string;
+  requestId?: string;
+  clientId?: string | null;
+  status: string;
+  preview?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  requestJson?: string | null;
+  responseJson?: string | null;
+  events?: RunTraceEvent[];
+  reasonings?: RunReasoning[];
+};
+
+function formatJson(value?: string | null) {
+  if (!value) return 'Not stored.';
+
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
 function RunsPage() {
-  const [runs, setRuns] = useState<Array<{ runId: string; status: string; preview?: string }>>([]);
+  const isSmall = useMediaQuery('(max-width: 700px)');
+  const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [runDialogOpen, setRunDialogOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const selectedRun = useMemo(
+    () => runs.find((run) => run.runId === selectedRunId) ?? null,
+    [runs, selectedRunId]
+  );
 
   async function load() {
     setLoading(true);
     try {
       const response = await fetch('/v1/orchestrations');
       const body = await response.json();
-      setRuns(body.runs ?? body ?? []);
+      const items: RunRecord[] = body.runs ?? body ?? [];
+      setRuns(items);
+      setSelectedRunId((current) => current && items.some((run) => run.runId === current) ? current : items[0]?.runId ?? null);
     } finally {
       setLoading(false);
     }
@@ -598,7 +688,14 @@ function RunsPage() {
 
   async function clear() {
     await fetch('/v1/orchestrations', { method: 'DELETE' });
+    setSelectedRunId(null);
+    setRunDialogOpen(false);
     await load();
+  }
+
+  function openRun(runId: string) {
+    setSelectedRunId(runId);
+    setRunDialogOpen(true);
   }
 
   return (
@@ -616,18 +713,132 @@ function RunsPage() {
         {loading ? (
           <Box p="lg"><Loader size="sm" /></Box>
         ) : (
-          <Stack gap={0}>
-            {runs.map((run) => (
-              <Box key={run.runId} className="run-row">
-                <Text fw={600}>{run.runId}</Text>
-                <Badge variant="light">{run.status}</Badge>
-                <Text c="dimmed">{run.preview}</Text>
-              </Box>
-            ))}
-            {runs.length === 0 && <Text c="dimmed" p="lg">No runs stored.</Text>}
-          </Stack>
+          <Box className="table-scroll">
+            <Table verticalSpacing="sm" highlightOnHover>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Run</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th>Preview</Table.Th>
+                  <Table.Th className="optional-column">Client</Table.Th>
+                  <Table.Th className="optional-column">Updated</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {runs.map((run) => (
+                  <Table.Tr key={run.runId} className="clickable-row" onClick={() => openRun(run.runId)}>
+                    <Table.Td><Text fw={600} className="cell-wrap">{run.runId}</Text></Table.Td>
+                    <Table.Td><Badge variant="light">{run.status}</Badge></Table.Td>
+                    <Table.Td><Text c="dimmed" className="cell-wrap">{run.preview}</Text></Table.Td>
+                    <Table.Td className="optional-column"><Text className="cell-wrap">{run.clientId ?? 'n/a'}</Text></Table.Td>
+                    <Table.Td className="optional-column"><Text>{run.updatedAt ? new Date(run.updatedAt).toLocaleString() : 'n/a'}</Text></Table.Td>
+                  </Table.Tr>
+                ))}
+                {runs.length === 0 && (
+                  <Table.Tr>
+                    <Table.Td colSpan={5}><Text c="dimmed" p="sm">No runs stored.</Text></Table.Td>
+                  </Table.Tr>
+                )}
+              </Table.Tbody>
+            </Table>
+          </Box>
         )}
       </Paper>
+
+      <Modal
+        opened={runDialogOpen}
+        onClose={() => setRunDialogOpen(false)}
+        title={selectedRun?.runId ?? 'Run detail'}
+        size="95%"
+        fullScreen={isSmall}
+        centered={!isSmall}
+      >
+        {selectedRun && (
+          <Stack>
+            <Group justify="space-between" align="start">
+              <Box>
+                <Text c="dimmed">{selectedRun.preview}</Text>
+              </Box>
+              <Badge variant="light">{selectedRun.status}</Badge>
+            </Group>
+
+            <Box className="run-meta-grid">
+              <Box>
+                <Text size="xs" c="dimmed" tt="uppercase">Request</Text>
+                <Text className="cell-wrap">{selectedRun.requestId ?? 'n/a'}</Text>
+              </Box>
+              <Box>
+                <Text size="xs" c="dimmed" tt="uppercase">Client</Text>
+                <Text className="cell-wrap">{selectedRun.clientId ?? 'n/a'}</Text>
+              </Box>
+              <Box>
+                <Text size="xs" c="dimmed" tt="uppercase">Created</Text>
+                <Text>{selectedRun.createdAt ? new Date(selectedRun.createdAt).toLocaleString() : 'n/a'}</Text>
+              </Box>
+              <Box>
+                <Text size="xs" c="dimmed" tt="uppercase">Updated</Text>
+                <Text>{selectedRun.updatedAt ? new Date(selectedRun.updatedAt).toLocaleString() : 'n/a'}</Text>
+              </Box>
+            </Box>
+
+            <Tabs defaultValue="summary">
+              <Tabs.List>
+                <Tabs.Tab value="summary">Summary</Tabs.Tab>
+                <Tabs.Tab value="request">Request</Tabs.Tab>
+                <Tabs.Tab value="response">Response</Tabs.Tab>
+                <Tabs.Tab value="events">Events</Tabs.Tab>
+                <Tabs.Tab value="reasoning">Reasoning</Tabs.Tab>
+              </Tabs.List>
+
+              <Tabs.Panel value="summary" pt="md">
+                <Stack>
+                  <Text>{selectedRun.preview}</Text>
+                  <Text c="dimmed">
+                    {(selectedRun.events ?? []).length} events, {(selectedRun.reasonings ?? []).length} reasoning records
+                  </Text>
+                </Stack>
+              </Tabs.Panel>
+              <Tabs.Panel value="request" pt="md">
+                <pre className="run-json">{formatJson(selectedRun.requestJson)}</pre>
+              </Tabs.Panel>
+              <Tabs.Panel value="response" pt="md">
+                <pre className="run-json">{formatJson(selectedRun.responseJson)}</pre>
+              </Tabs.Panel>
+              <Tabs.Panel value="events" pt="md">
+                <Stack gap="xs">
+                  {(selectedRun.events ?? []).map((event, index) => (
+                    <Box key={`${event.type}-${index}`} className="run-detail-item">
+                      <Group justify="space-between">
+                        <Text fw={600}>{event.type}</Text>
+                        {event.createdAt && <Text size="xs" c="dimmed">{new Date(event.createdAt).toLocaleString()}</Text>}
+                      </Group>
+                      <pre className="run-json">{formatJson(event.json)}</pre>
+                    </Box>
+                  ))}
+                  {(selectedRun.events ?? []).length === 0 && <Text c="dimmed">No trace events stored.</Text>}
+                </Stack>
+              </Tabs.Panel>
+              <Tabs.Panel value="reasoning" pt="md">
+                <Stack gap="xs">
+                  {(selectedRun.reasonings ?? []).map((reasoning) => (
+                    <Box
+                      key={`${reasoning.stageIndex}-${reasoning.executionIndex}-${reasoning.iterationIndex}-${reasoning.label}`}
+                      className="run-detail-item"
+                    >
+                      <Text fw={600}>{reasoning.label}</Text>
+                      <Text size="xs" c="dimmed">
+                        Stage {reasoning.stageIndex + 1}, execution {reasoning.executionIndex + 1}, iteration {reasoning.iterationIndex + 1}
+                      </Text>
+                      <pre className="run-json">{reasoning.content}</pre>
+                    </Box>
+                  ))}
+                  {(selectedRun.reasonings ?? []).length === 0 && <Text c="dimmed">No reasoning stored.</Text>}
+                </Stack>
+              </Tabs.Panel>
+            </Tabs>
+          </Stack>
+        )}
+      </Modal>
     </Stack>
   );
 }
