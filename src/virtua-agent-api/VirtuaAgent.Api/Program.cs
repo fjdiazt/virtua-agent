@@ -11,7 +11,10 @@ using Microsoft.Extensions.Options;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SchemaFilter<ChatMessageContentSchemaFilter>();
+});
 builder.Services.Configure<UpstreamOptions>(builder.Configuration.GetSection("Upstream"));
 builder.Services.AddSingleton<ActiveTraceHub>();
 builder.Services.AddSingleton<PipelineExecutor>();

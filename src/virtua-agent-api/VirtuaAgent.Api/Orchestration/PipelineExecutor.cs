@@ -47,7 +47,7 @@ public sealed class PipelineExecutor(
                 lastResponse = endpoint is null
                     ? await upstreamClient.ChatAsync(stageRequest, cancellationToken)
                     : await upstreamClient.ChatAsync(stageRequest, endpoint, cancellationToken);
-                context.CurrentAnswer = lastResponse.Choices.FirstOrDefault()?.Message.Content ?? "";
+                context.CurrentAnswer = lastResponse.Choices.FirstOrDefault()?.Message.Content.AsText() ?? "";
 
                 await PublishAsync(runId, "agent_response", new { stage_index = executionIndex, content = context.CurrentAnswer }, store, cancellationToken);
                 await PublishAsync(runId, "stage_completed", new { stage_index = executionIndex }, store, cancellationToken);

@@ -29,6 +29,11 @@ public static class PipelinePromptBuilder
 
         protocol ??= PipelinePromptProtocol.Default;
 
+        if (executionIndex == 0 && context.OriginalMessages.Any(message => message.Content.IsParts))
+        {
+            return BuildFirstStageMessagesWithMedia(context, stage, protocol);
+        }
+
         var sections = new List<string>
         {
             "Pipeline protocol:",
@@ -59,6 +64,33 @@ public static class PipelinePromptBuilder
         ];
     }
 
+    private static List<ChatMessageDto> BuildFirstStageMessagesWithMedia(
+        PipelineContext context,
+        PipelineStageDefinition stage,
+        PipelinePromptProtocol protocol)
+    {
+        var messages = new List<ChatMessageDto>(context.OriginalMessages);
+        var sections = new List<string>
+        {
+            "Pipeline protocol:",
+            protocol.Instructions.Trim(),
+            "Original conversation, including media, is preserved in the previous message(s)."
+        };
+
+        if (!string.IsNullOrWhiteSpace(stage.Instructions))
+        {
+            sections.Add("Stage instruction:");
+            sections.Add(stage.Instructions);
+        }
+
+        messages.Add(new ChatMessageDto
+        {
+            Role = "user",
+            Content = string.Join("\n\n", sections)
+        });
+        return messages;
+    }
+
     private static string FormatConversation(IEnumerable<ChatMessageDto> messages) =>
-        string.Join("\n", messages.Select(message => $"{message.Role}: {message.Content}"));
+        string.Join("\n", messages.Select(message => $"{message.Role}: {message.Content.AsText()}"));
 }

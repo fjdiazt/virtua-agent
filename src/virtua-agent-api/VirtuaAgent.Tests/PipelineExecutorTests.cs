@@ -1,3 +1,4 @@
+using System.Text.Json;
 using VirtuaAgent.OpenAi;
 using VirtuaAgent.ModelEndpoints;
 using VirtuaAgent.Orchestration;
@@ -9,6 +10,36 @@ namespace VirtuaAgent.Tests;
 
 public sealed class PipelineExecutorTests
 {
+    [Fact]
+    public void ChatRequestDeserializesOpenAiMultimodalContent()
+    {
+        const string json = """
+            {
+              "model": "vision-model",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": [
+                    { "type": "text", "text": "Describe this image." },
+                    { "type": "image_url", "image_url": { "url": "data:image/png;base64,AAAABASE64" } }
+                  ]
+                }
+              ]
+            }
+            """;
+
+        var request = JsonSerializer.Deserialize<ChatCompletionRequest>(json, JsonOptions.Default)!;
+
+        var content = request.Messages[0].Content;
+        Assert.True(content.IsParts);
+        Assert.Contains(content.Parts, part => part.Type == "text" && part.Text == "Describe this image.");
+        Assert.Contains(content.Parts, part => part.Type == "image_url" && part.ImageUrl?.Url == "data:image/png;base64,AAAABASE64");
+
+        var roundTrip = JsonSerializer.Serialize(request, JsonOptions.Default);
+        Assert.Contains("\"content\":[{\"type\":\"text\"", roundTrip, StringComparison.Ordinal);
+        Assert.Contains("\"image_url\":{\"url\":\"data:image/png;base64,AAAABASE64\"}", roundTrip, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task FirstStageWithoutInstructionsSendsOriginalConversationUnchanged()
     {
@@ -74,6 +105,51 @@ public sealed class PipelineExecutorTests
     }
 
     [Fact]
+    public async Task FirstStageWithInstructionsPreservesMultimodalOriginalMessage()
+    {
+        var upstream = new RecordingUpstreamClient("image observations");
+        var executor = CreateExecutor(upstream);
+        var request = new ChatCompletionRequest
+        {
+            Model = "vision-model",
+            Messages =
+            [
+                new ChatMessageDto
+                {
+                    Role = "user",
+                    Content = ChatMessageContent.FromParts(
+                    [
+                        ChatMessageContentPart.FromText("Describe this image."),
+                        ChatMessageContentPart.FromImageUrl("data:image/png;base64,AAAABASE64")
+                    ])
+                }
+            ],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    Stages =
+                    [
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Instructions = "Analyze only visible image details."
+                        }
+                    ]
+                }
+            }
+        };
+
+        await executor.ExecuteAsync("run_test", request, store: true);
+
+        Assert.Equal(2, upstream.Requests[0].Messages.Count);
+        Assert.True(upstream.Requests[0].Messages[0].Content.IsParts);
+        Assert.Contains(upstream.Requests[0].Messages[0].Content.Parts, part => part.Type == "image_url" && part.ImageUrl?.Url == "data:image/png;base64,AAAABASE64");
+        Assert.False(upstream.Requests[0].Messages[1].Content.IsParts);
+        Assert.Contains("Analyze only visible image details.", upstream.Requests[0].Messages[1].Content.AsText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LaterStageWithInstructionsReceivesPipelineProtocolAndLabeledPromptSections()
     {
         var upstream = new RecordingUpstreamClient("draft answer", "corrected answer");
@@ -117,6 +193,53 @@ public sealed class PipelineExecutorTests
         Assert.Contains("Stage instruction:", packaged.Content, StringComparison.Ordinal);
         Assert.Contains("Correct spelling only.", packaged.Content, StringComparison.Ordinal);
         Assert.DoesNotContain("Revise and improve", packaged.Content, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LaterStageReceivesTextOnlyPriorOutputForMultimodalRequest()
+    {
+        var upstream = new RecordingUpstreamClient("image observations", "final description");
+        var executor = CreateExecutor(upstream);
+        var request = new ChatCompletionRequest
+        {
+            Model = "vision-model",
+            Messages =
+            [
+                new ChatMessageDto
+                {
+                    Role = "user",
+                    Content = ChatMessageContent.FromParts(
+                    [
+                        ChatMessageContentPart.FromText("Describe this image."),
+                        ChatMessageContentPart.FromImageUrl("data:image/png;base64,AAAABASE64")
+                    ])
+                }
+            ],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    Stages =
+                    [
+                        new PipelineStageRequestDto { Type = "single_agent" },
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Instructions = "Write the final description."
+                        }
+                    ]
+                }
+            }
+        };
+
+        await executor.ExecuteAsync("run_test", request, store: true);
+
+        Assert.True(upstream.Requests[0].Messages[0].Content.IsParts);
+        var packaged = Assert.Single(upstream.Requests[1].Messages);
+        Assert.False(packaged.Content.IsParts);
+        Assert.Contains("Prior stage output:", packaged.Content.AsText(), StringComparison.Ordinal);
+        Assert.Contains("image observations", packaged.Content.AsText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("data:image/png;base64,AAAABASE64", packaged.Content.AsText(), StringComparison.Ordinal);
     }
 
     [Fact]
