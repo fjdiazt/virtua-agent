@@ -159,6 +159,19 @@ function importedModelsFromJson(value: unknown): VirtuaAgentModel[] {
   return models as VirtuaAgentModel[];
 }
 
+function importSuccessMessage(models: VirtuaAgentModel[], created: number, updated: number) {
+  if (models.length === 1) {
+    return updated === 1 ? `Updated ${models[0].id}` : `Imported ${models[0].id}`;
+  }
+
+  const counts = [
+    updated > 0 ? `${updated} updated` : null,
+    created > 0 ? `${created} created` : null
+  ].filter(Boolean);
+
+  return `Imported ${models.length} models: ${counts.join(', ')}`;
+}
+
 function safeJsonFilename(value: string) {
   return value.trim().replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || 'virtua-agent-model';
 }
@@ -409,13 +422,24 @@ function ModelsPage() {
     setImporting(true);
     try {
       const imported = importedModelsFromJson(JSON.parse(importText));
+      const existingIds = new Set(items.map((item) => item.id));
+      let created = 0;
+      let updated = 0;
+
       for (const model of imported) {
+        if (existingIds.has(model.id)) {
+          updated++;
+        } else {
+          created++;
+          existingIds.add(model.id);
+        }
+
         await saveVirtuaAgentModel(model);
       }
 
       notifications.show({
         color: 'green',
-        message: imported.length === 1 ? `Imported ${imported[0].id}` : `Imported ${imported.length} models`
+        message: importSuccessMessage(imported, created, updated)
       });
       setImportOpen(false);
       setImportText('');
