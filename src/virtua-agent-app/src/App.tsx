@@ -928,15 +928,10 @@ function SettingsPage() {
 
   return (
     <Stack gap="lg">
-      <Group justify="space-between">
-        <Box>
-          <Title order={2}>Settings</Title>
-          <Text c="dimmed">Pipeline protocol and OpenAI-compatible endpoints.</Text>
-        </Box>
-        <Button leftSection={<IconPlus size={16} />} onClick={() => { setSelectedId(null); setDraft({ name: '', base_url: '', api_key: '' }); setModels([]); }}>
-          New endpoint
-        </Button>
-      </Group>
+      <Box>
+        <Title order={2}>Settings</Title>
+        <Text c="dimmed">Pipeline protocol and OpenAI-compatible endpoints.</Text>
+      </Box>
 
       {endpointLoadError && (
         <Alert color="red" title="Endpoint list unavailable">
@@ -982,7 +977,10 @@ function SettingsPage() {
 
       <Box className="models-grid">
         <Paper withBorder p="sm">
-          <Stack gap={4}>
+          <Stack gap="sm">
+            <Button fullWidth leftSection={<IconPlus size={16} />} onClick={() => { setSelectedId(null); setDraft({ name: '', base_url: '', api_key: '' }); setModels([]); }}>
+              New endpoint
+            </Button>
             {loadingEndpoints && endpoints.length === 0 && <Loader size="sm" />}
             {endpoints.map((endpoint) => (
               <NavLink
