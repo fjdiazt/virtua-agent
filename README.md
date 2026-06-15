@@ -6,15 +6,18 @@
 
 Local-first OpenAI-compatible orchestration API with an ASP.NET Core backend and React/Vite workbench UI.
 
-Virtua Agent exposes `/v1/chat/completions` as a drop-in OpenAI-compatible proxy to one configured upstream. Normal chat completion requests pass through unchanged. Requests can also opt into Virtua Agent orchestration, or select a saved Virtua Agent Pipeline model from `/v1/models`, to run staged agent calls, stream reasoning, persist traces in SQLite, and inspect runs through the built-in UI.
+Virtua Agent exposes `/v1/chat/completions` as a drop-in OpenAI-compatible proxy to the default upstream or a saved OpenAI-compatible endpoint selected with `endpoint_id`. Normal chat completion requests pass through unchanged. Requests can also opt into Virtua Agent orchestration, or select a saved Virtua Agent Pipeline model from `/v1/models`, to run staged agent calls, stream reasoning, persist traces in SQLite, and inspect runs through the built-in UI.
 
 Current direction is narrow and inspectable: improve AI responses through explicit pipeline stages, preserve OpenAI-compatible request/response shapes, record enough trace data to debug behavior, and keep everything local-first. Out of scope for now: auth, billing, cloud sync, RAG, tool execution, provider marketplace, autonomous background agents, and multi-user workflow.
 
 ## Features
 
 - OpenAI-compatible `/v1/chat/completions` proxy for streaming and non-streaming requests.
+- OpenAI-compatible string and multimodal message content arrays with `text` and `image_url` parts.
 - OpenAI-compatible `/v1/models` list that merges upstream models with saved Virtua Agent Pipeline-backed models.
 - Pipeline orchestration with `single_agent` stages, per-stage instructions, repeats, stage names, default model/temperature/max tokens, per-stage agent overrides, and random agent selection.
+- Per-stage input routing for original messages and prior stage output.
+- Configurable pipeline protocol with pipeline-level and stage-level protocol overrides.
 - Saved pipeline model CRUD at `/v1/pipeline-models`.
 - Saved OpenAI-compatible endpoint CRUD at `/v1/model-endpoints`.
 - Built-in `virtua-agent-test` saved model fixture for visible `Draft -> Tighten -> Apply rules` mutation with repeat counts `1, 2, 1`.
@@ -66,7 +69,9 @@ Upstream must expose OpenAI-compatible `/v1/models` and `/v1/chat/completions`.
 
 Additional OpenAI-compatible endpoints can be saved from `/app/settings`. Saved endpoints are stored in SQLite and can be selected in Virtua Agent stage forms.
 
-`TraceStore:ConnectionString` is shared by run traces, saved pipeline models, and saved model endpoints. Local SQLite files are ignored by git.
+Pipeline protocol can also be edited from `/app/settings` or through `/v1/settings`. The saved protocol is stored in SQLite and used by pipeline stages unless a pipeline or stage sets a `protocol` override.
+
+`TraceStore:ConnectionString` is shared by run traces, saved pipeline models, saved model endpoints, and app settings. Local SQLite files are ignored by git.
 
 ## App Development
 
@@ -121,6 +126,30 @@ Plain OpenAI-compatible proxy:
 }
 ```
 
+OpenAI-compatible multimodal image request:
+
+```json
+{
+  "model": "local-vision-model",
+  "stream": false,
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        { "type": "text", "text": "Describe this image for a product catalog." },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,...",
+            "detail": "high"
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
 Inline Virtua Agent Pipeline:
 
 ```json
@@ -151,6 +180,76 @@ Inline Virtua Agent Pipeline:
           "type": "single_agent",
           "name": "Apply rules",
           "instructions": "Apply final constraints and return the final answer."
+        }
+      ]
+    }
+  }
+}
+```
+
+Staged media-description pipeline:
+
+```json
+{
+  "model": "local-vision-model",
+  "stream": true,
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        { "type": "text", "text": "Use the project style guide and describe this image." },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,..."
+          }
+        }
+      ]
+    }
+  ],
+  "orchestration": {
+    "include_virtua_agent": true,
+    "store": true,
+    "pipeline": {
+      "default_endpoint_id": "local-vision",
+      "default_model": "local-vision-model",
+      "default_temperature": 0.2,
+      "stages": [
+        {
+          "type": "single_agent",
+          "name": "Analyze image",
+          "input": {
+            "original_messages": "full",
+            "prior_stage_output": "none"
+          },
+          "instructions": "Inspect the image and original user instructions. Return visual observations only."
+        },
+        {
+          "type": "single_agent",
+          "name": "Draft description",
+          "input": {
+            "original_messages": "text",
+            "prior_stage_output": "last"
+          },
+          "instructions": "Use the prior visual observations and original text instructions to draft a media description."
+        },
+        {
+          "type": "single_agent",
+          "name": "Final description",
+          "input": {
+            "original_messages": "none",
+            "prior_stage_output": "last"
+          },
+          "instructions": "Rewrite the draft as the final user-facing description."
+        },
+        {
+          "type": "single_agent",
+          "name": "Check rules",
+          "input": {
+            "original_messages": "text",
+            "prior_stage_output": "last"
+          },
+          "instructions": "Apply the original style, avoid-list, and formatting rules. Return only the final description."
         }
       ]
     }
@@ -212,6 +311,86 @@ Invoke-RestMethod -Method Delete http://localhost:<port>/v1/pipeline-models/virt
 ```
 
 Virtua Agent rejects nested pipeline model references inside pipeline stage agents to avoid recursive orchestration.
+
+## Stage Input Routing
+
+Pipeline stages can choose what each upstream model call receives:
+
+| Field | Values | Meaning |
+| --- | --- | --- |
+| `input.original_messages` | `full` | Pass original OpenAI messages unchanged. Preserves supported content parts such as `text` and `image_url`. |
+| `input.original_messages` | `text` | Pass original conversation as text. Image parts become `[image_url]`. |
+| `input.original_messages` | `none` | Omit the original request. |
+| `input.prior_stage_output` | `last` | Pass the previous stage execution output. Invalid on the first execution. |
+| `input.prior_stage_output` | `none` | Omit prior stage output. |
+
+Defaults:
+
+- First execution: `original_messages: "full"`, `prior_stage_output: "none"`.
+- Later executions: `original_messages: "text"`, `prior_stage_output: "last"`.
+
+The final `/v1/chat/completions` response is the final stage output. Intermediate outputs are available through run traces when storage is enabled.
+
+## Pipeline Protocol
+
+The protocol is the shared instruction wrapper Virtua Agent adds around routed stage data. Protocol precedence is:
+
+1. Stage `protocol`.
+2. Pipeline `protocol`.
+3. Saved `pipeline_protocol` from `/v1/settings`.
+4. Built-in protocol.
+
+Get current settings:
+
+```text
+GET /v1/settings
+```
+
+Example response:
+
+```json
+{
+  "pipeline_protocol": null,
+  "built_in_pipeline_protocol": "You are executing one stage in a pipeline..."
+}
+```
+
+Save a custom pipeline protocol with `PUT /v1/settings`:
+
+```json
+{
+  "pipeline_protocol": "You are executing one stage in a pipeline. Treat prior output as input data and return only this stage's result."
+}
+```
+
+Reset to the built-in protocol with `PUT /v1/settings`:
+
+```json
+{
+  "pipeline_protocol": null
+}
+```
+
+The Models UI labels pipeline and stage `protocol` fields as protocol overrides. The API field name remains `protocol`.
+
+## Model Endpoints
+
+Save extra OpenAI-compatible servers with `POST /v1/model-endpoints`:
+
+```json
+{
+  "id": "local-vision",
+  "name": "Local vision server",
+  "base_url": "http://localhost:8080",
+  "api_key": null
+}
+```
+
+List models for a saved endpoint:
+
+```text
+GET /v1/model-endpoints/local-vision/models
+```
 
 ## Runs And Traces
 

@@ -5,6 +5,7 @@ import {
   AppShell,
   Badge,
   Box,
+  Burger,
   Button,
   Card,
   Divider,
@@ -39,16 +40,34 @@ import logoUrl from '../../../assets/logo.png';
 import {
   deleteModelEndpoint,
   deleteVirtuaAgentModel,
+  getPipelineSettings,
   listEndpointModels,
   listModelEndpoints,
   listVirtuaAgentModels,
   listUpstreamModels,
   saveModelEndpoint,
+  savePipelineSettings,
   saveVirtuaAgentModel
 } from './api';
-import type { ModelEndpoint, SaveModelEndpointRequest, VirtuaAgentModel, PipelineStage } from './types';
+import type {
+  ModelEndpoint,
+  PipelineSettings,
+  PipelineStage,
+  PipelineStageInput,
+  SaveModelEndpointRequest,
+  VirtuaAgentModel
+} from './types';
 
 const defaultEndpointValue = '__default__';
+const originalMessageInputData = [
+  { value: 'full', label: 'Original messages: full' },
+  { value: 'text', label: 'Original messages: text only' },
+  { value: 'none', label: 'Original messages: none' }
+];
+const priorStageOutputInputData = [
+  { value: 'none', label: 'Prior output: none' },
+  { value: 'last', label: 'Prior output: last stage' }
+];
 
 function endpointSelectData(endpoints: ModelEndpoint[]) {
   return [
@@ -70,8 +89,31 @@ const emptyStage = (): PipelineStage => ({
   repeat: 1,
   name: '',
   instructions: '',
+  protocol: null,
+  input: null,
   agent: { endpoint_id: null, model: null, temperature: null, max_tokens: null }
 });
+
+function defaultStageInput(index: number): PipelineStageInput {
+  return index === 0
+    ? { original_messages: 'full', prior_stage_output: 'none' }
+    : { original_messages: 'text', prior_stage_output: 'last' };
+}
+
+function hasProtocol(value?: string | null) {
+  return Boolean(value?.trim());
+}
+
+function modelProtocolSource(protocol?: string | null, settings?: PipelineSettings | null) {
+  if (hasProtocol(protocol)) return 'Using model protocol override.';
+  if (hasProtocol(settings?.pipeline_protocol)) return 'Using pipeline protocol from Settings.';
+  return 'Using built-in protocol.';
+}
+
+function stageProtocolSource(stage: PipelineStage, modelProtocol?: string | null, settings?: PipelineSettings | null) {
+  if (hasProtocol(stage.protocol)) return 'Using stage protocol override.';
+  return modelProtocolSource(modelProtocol, settings);
+}
 
 const emptyModel = (baseModel?: string): VirtuaAgentModel => ({
   id: 'virtua-agent/new-model',
@@ -81,6 +123,7 @@ const emptyModel = (baseModel?: string): VirtuaAgentModel => ({
     default_model: baseModel ?? null,
     default_temperature: 0.2,
     default_max_tokens: 512,
+    protocol: null,
     stages: [emptyStage()]
   }
 });
@@ -93,6 +136,7 @@ type ModelLoadError = {
 
 export function App() {
   const location = useLocation();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const nav = [
     { label: 'Models', icon: IconBrandOpenai, to: '/models' },
     { label: 'Runs', icon: IconActivity, to: '/runs' },
@@ -100,7 +144,26 @@ export function App() {
   ];
 
   return (
-    <AppShell navbar={{ width: 260, breakpoint: 'sm' }} padding="lg" className="shell">
+    <AppShell
+      header={{ height: { base: 56, sm: 0 } }}
+      navbar={{ width: 260, breakpoint: 'sm', collapsed: { mobile: !mobileNavOpen } }}
+      padding="lg"
+      className="shell"
+    >
+      <AppShell.Header hiddenFrom="sm">
+        <Group h="100%" px="md" justify="space-between">
+          <Group gap="sm">
+            <img className="mobile-brand-logo" src={logoUrl} alt="Virtua Agent" />
+            <Text fw={600}>Virtua Agent</Text>
+          </Group>
+          <Burger
+            opened={mobileNavOpen}
+            onClick={() => setMobileNavOpen((opened) => !opened)}
+            size="sm"
+            aria-label="Toggle navigation"
+          />
+        </Group>
+      </AppShell.Header>
       <AppShell.Navbar p="md">
         <Stack className="brand-block" gap={4} mb="xl">
           <img className="brand-logo" src={logoUrl} alt="Virtua Agent" />
@@ -116,9 +179,16 @@ export function App() {
               label={item.label}
               leftSection={<item.icon size={18} />}
               rightSection={<IconChevronRight size={14} />}
+              onClick={() => setMobileNavOpen(false)}
             />
           ))}
-          <NavLink component="a" href="/swagger" label="Swagger" leftSection={<IconBook2 size={18} />} />
+          <NavLink
+            component="a"
+            href="/swagger"
+            label="Swagger"
+            leftSection={<IconBook2 size={18} />}
+            onClick={() => setMobileNavOpen(false)}
+          />
         </Stack>
       </AppShell.Navbar>
       <AppShell.Main>
@@ -140,6 +210,7 @@ function ModelsPage() {
   const [upstreamModels, setUpstreamModels] = useState<string[]>([]);
   const [modelLoadErrors, setModelLoadErrors] = useState<Record<string, ModelLoadError>>({});
   const [items, setItems] = useState<VirtuaAgentModel[]>([]);
+  const [pipelineSettings, setPipelineSettings] = useState<PipelineSettings | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [draft, setDraft] = useState<VirtuaAgentModel>(() => emptyModel());
@@ -166,10 +237,12 @@ function ModelsPage() {
   async function refresh() {
     const savedModelsPromise = listVirtuaAgentModels();
     const savedEndpointsPromise = listModelEndpoints();
+    const settingsPromise = getPipelineSettings();
 
-    const [VirtuaAgentModels, savedEndpoints] = await Promise.all([savedModelsPromise, savedEndpointsPromise]);
+    const [VirtuaAgentModels, savedEndpoints, settings] = await Promise.all([savedModelsPromise, savedEndpointsPromise, settingsPromise]);
     setItems(VirtuaAgentModels);
     setEndpoints(savedEndpoints);
+    setPipelineSettings(settings);
 
     if (!selectedId && VirtuaAgentModels[0]) {
       setSelectedId(VirtuaAgentModels[0].id);
@@ -373,6 +446,18 @@ function ModelsPage() {
                 onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_max_tokens: value === '' ? null : Number(value) } })}
               />
             </Group>
+            <Textarea
+              label="Protocol override"
+              description={modelProtocolSource(draft.pipeline.protocol, pipelineSettings)}
+              autosize
+              minRows={2}
+              maxRows={10}
+              value={draft.pipeline.protocol ?? ''}
+              onChange={(event) => setDraft({
+                ...draft,
+                pipeline: { ...draft.pipeline, protocol: event.currentTarget.value || null }
+              })}
+            />
 
             <Divider label="Pipeline" />
             <Stack>
@@ -396,7 +481,7 @@ function ModelsPage() {
                         <IconTrash size={18} />
                       </ActionIcon>
                     </Group>
-                    <Group grow align="end">
+                    <Box className="stage-primary-grid">
                       <TextInput
                         label="Stage name"
                         value={stage.name ?? ''}
@@ -428,8 +513,8 @@ function ModelsPage() {
                         value={stage.repeat}
                         onChange={(value) => updateStage(index, { ...stage, repeat: Number(value) || 1 })}
                       />
-                    </Group>
-                    <Group grow>
+                    </Box>
+                    <Box className="stage-secondary-grid">
                       <NumberInput
                         label="Temperature"
                         min={0}
@@ -444,10 +529,47 @@ function ModelsPage() {
                         value={stage.agent?.max_tokens ?? undefined}
                         onChange={(value) => updateStage(index, { ...stage, agent: { ...stage.agent, max_tokens: value === '' ? null : Number(value) } })}
                       />
+                    </Box>
+                    <Group grow>
+                      <Select
+                        label="Original messages"
+                        data={originalMessageInputData}
+                        value={stage.input?.original_messages ?? defaultStageInput(index).original_messages}
+                        onChange={(value) => updateStage(index, {
+                          ...stage,
+                          input: {
+                            ...(stage.input ?? {}),
+                            original_messages: (value ?? defaultStageInput(index).original_messages) as 'none' | 'text' | 'full'
+                          }
+                        })}
+                      />
+                      <Select
+                        label="Prior output"
+                        data={priorStageOutputInputData}
+                        value={stage.input?.prior_stage_output ?? defaultStageInput(index).prior_stage_output}
+                        onChange={(value) => updateStage(index, {
+                          ...stage,
+                          input: {
+                            ...(stage.input ?? {}),
+                            prior_stage_output: (value ?? defaultStageInput(index).prior_stage_output) as 'none' | 'last'
+                          }
+                        })}
+                      />
                     </Group>
                     <Textarea
+                      label="Protocol override"
+                      description={stageProtocolSource(stage, draft.pipeline.protocol, pipelineSettings)}
+                      autosize
+                      minRows={2}
+                      maxRows={10}
+                      value={stage.protocol ?? ''}
+                      onChange={(event) => updateStage(index, { ...stage, protocol: event.currentTarget.value || null })}
+                    />
+                    <Textarea
                       label="Instructions"
-                      minRows={3}
+                      autosize
+                      minRows={2}
+                      maxRows={10}
                       value={stage.instructions ?? ''}
                       onChange={(event) => updateStage(index, { ...stage, instructions: event.currentTarget.value })}
                     />
@@ -478,7 +600,13 @@ function SettingsPage() {
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<SaveModelEndpointRequest>({ name: '', base_url: '', api_key: '' });
+  const [pipelineSettings, setPipelineSettings] = useState<PipelineSettings | null>(null);
+  const [pipelineProtocolDraft, setPipelineProtocolDraft] = useState('');
+  const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
+  const [savingPipelineProtocol, setSavingPipelineProtocol] = useState(false);
   const [models, setModels] = useState<string[]>([]);
+  const [loadingEndpoints, setLoadingEndpoints] = useState(false);
+  const [endpointLoadError, setEndpointLoadError] = useState<string | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
 
   const selected = useMemo(
@@ -488,18 +616,74 @@ function SettingsPage() {
 
   useEffect(() => {
     void refresh();
+    void refreshPipelineSettings();
   }, []);
 
   useEffect(() => {
     if (!selected) return;
     setDraft({ id: selected.id, name: selected.name, base_url: selected.base_url, api_key: '' });
-    void refreshModels(selected.id);
+    setModels([]);
   }, [selected]);
 
   async function refresh() {
-    const items = await listModelEndpoints();
-    setEndpoints(items);
-    if (!selectedId && items[0]) setSelectedId(items[0].id);
+    setLoadingEndpoints(true);
+    try {
+      const items = await listModelEndpoints();
+      setEndpoints(items);
+      setEndpointLoadError(null);
+      if (!selectedId && items[0]) setSelectedId(items[0].id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load endpoints';
+      setEndpointLoadError(message);
+      notifications.show({ color: 'red', message });
+    } finally {
+      setLoadingEndpoints(false);
+    }
+  }
+
+  async function refreshPipelineSettings() {
+    try {
+      const settings = await getPipelineSettings();
+      setPipelineSettings(settings);
+      setPipelineProtocolDraft(settings.pipeline_protocol ?? settings.built_in_pipeline_protocol);
+      setSettingsLoadError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load pipeline protocol';
+      setSettingsLoadError(message);
+      notifications.show({ color: 'red', message });
+    }
+  }
+
+  async function savePipelineProtocol() {
+    setSavingPipelineProtocol(true);
+    try {
+      const nextProtocol = pipelineProtocolDraft.trim();
+      const builtInProtocol = pipelineSettings?.built_in_pipeline_protocol.trim() ?? '';
+      const saved = await savePipelineSettings({
+        pipeline_protocol: nextProtocol && nextProtocol !== builtInProtocol ? nextProtocol : null
+      });
+      setPipelineSettings(saved);
+      setPipelineProtocolDraft(saved.pipeline_protocol ?? saved.built_in_pipeline_protocol);
+      notifications.show({ color: 'green', message: 'Pipeline protocol saved' });
+    } catch (error) {
+      notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Failed to save pipeline protocol' });
+    } finally {
+      setSavingPipelineProtocol(false);
+    }
+  }
+
+  async function resetPipelineProtocol() {
+    setSavingPipelineProtocol(true);
+    try {
+      const saved = await savePipelineSettings({ pipeline_protocol: null });
+      setPipelineSettings(saved);
+      setPipelineProtocolDraft(saved.built_in_pipeline_protocol);
+      notifications.show({ color: 'green', message: 'Pipeline protocol reset to default' });
+    } catch (error) {
+      notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Failed to reset pipeline protocol' });
+    } finally {
+      setSavingPipelineProtocol(false);
+    }
   }
 
   async function refreshModels(endpointId: string) {
@@ -545,16 +729,59 @@ function SettingsPage() {
       <Group justify="space-between">
         <Box>
           <Title order={2}>Settings</Title>
-          <Text c="dimmed">OpenAI-compatible endpoints for pipeline stages.</Text>
+          <Text c="dimmed">Pipeline protocol and OpenAI-compatible endpoints.</Text>
         </Box>
         <Button leftSection={<IconPlus size={16} />} onClick={() => { setSelectedId(null); setDraft({ name: '', base_url: '', api_key: '' }); setModels([]); }}>
           New endpoint
         </Button>
       </Group>
 
+      {endpointLoadError && (
+        <Alert color="red" title="Endpoint list unavailable">
+          Saved endpoints could not be loaded from the local database. {endpointLoadError}
+        </Alert>
+      )}
+
+      <Paper withBorder p="lg">
+        <Stack>
+          <Group justify="space-between">
+            <Title order={3}>Pipeline protocol</Title>
+            <Badge variant="light">{hasProtocol(pipelineSettings?.pipeline_protocol) ? 'Custom' : 'Default'}</Badge>
+          </Group>
+          {settingsLoadError && (
+            <Alert color="red" title="Pipeline protocol unavailable">
+              {settingsLoadError}
+            </Alert>
+          )}
+          <Textarea
+            label="Pipeline protocol"
+            autosize
+            maxRows={10}
+            minRows={2}
+            value={pipelineProtocolDraft}
+            onChange={(event) => setPipelineProtocolDraft(event.currentTarget.value)}
+          />
+          <Group justify="space-between">
+            <Group>
+              <Button
+                variant="subtle"
+                disabled={!pipelineSettings?.built_in_pipeline_protocol}
+                onClick={() => void resetPipelineProtocol()}
+              >
+                Reset to default
+              </Button>
+            </Group>
+            <Button loading={savingPipelineProtocol} leftSection={<IconSettings size={16} />} onClick={() => void savePipelineProtocol()}>
+              Save protocol
+            </Button>
+          </Group>
+        </Stack>
+      </Paper>
+
       <Box className="models-grid">
         <Paper withBorder p="sm">
           <Stack gap={4}>
+            {loadingEndpoints && endpoints.length === 0 && <Loader size="sm" />}
             {endpoints.map((endpoint) => (
               <NavLink
                 key={endpoint.id}

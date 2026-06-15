@@ -79,6 +79,47 @@ public sealed class ChatCompletionsEndpointTests
     }
 
     [Fact]
+    public async Task MultimodalRequestTraceRedactsImagePayload()
+    {
+        var traceStore = new RecordingTraceStore();
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    services.RemoveAll<IOpenAiCompatibleUpstreamClient>();
+                    services.RemoveAll<ITraceStore>();
+                    services.AddSingleton<IOpenAiCompatibleUpstreamClient>(new FakeUpstreamClient());
+                    services.AddSingleton<ITraceStore>(traceStore);
+                });
+            });
+
+        var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/v1/chat/completions", new ChatCompletionRequest
+        {
+            Model = "vision-model",
+            Messages =
+            [
+                new ChatMessageDto
+                {
+                    Role = "user",
+                    Content = ChatMessageContent.FromParts(
+                    [
+                        ChatMessageContentPart.FromText("Describe this image."),
+                        ChatMessageContentPart.FromImageUrl("data:image/png;base64,AAAABASE64")
+                    ])
+                }
+            ]
+        }, JsonOptions.Default);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var run = Assert.Single(traceStore.Runs);
+        Assert.Equal("Describe this image. [image_url]", run.Preview);
+        Assert.Contains("\"url\":\"[image_url redacted]\"", run.RequestJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("AAAABASE64", run.RequestJson, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task StreamTruePipelineReturnsFinalAnswerStreamWithVirtuaAgentHeaders()
     {
         await using var factory = new WebApplicationFactory<Program>()
@@ -274,8 +315,68 @@ public sealed class ChatCompletionsEndpointTests
         Assert.Equal(2, upstream.Requests.Count);
         Assert.All(upstream.Requests, request => Assert.Equal("local-model", request.Model));
         Assert.All(upstream.Requests, request => Assert.Equal(0.7, request.Temperature));
-        Assert.Contains(upstream.Requests[1].Messages, message => message.Role == "user" && message.Content.Contains("draft answer", StringComparison.Ordinal));
-        Assert.Contains(upstream.Requests[1].Messages, message => message.Role == "user" && message.Content.Contains("Correct spelling only.", StringComparison.Ordinal));
+        Assert.Contains(upstream.Requests[1].Messages, message => message.Role == "user" && message.Content.AsText().Contains("draft answer", StringComparison.Ordinal));
+        Assert.Contains(upstream.Requests[1].Messages, message => message.Role == "user" && message.Content.AsText().Contains("Correct spelling only.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task PresetPipelineUsesConfiguredStageInputSelectors()
+    {
+        var upstream = new FakeUpstreamClient("observations", "draft");
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureAppConfiguration((_, config) =>
+                {
+                    config.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["PipelinePresets:0:Id"] = "virtua-agent/media-description",
+                        ["PipelinePresets:0:Pipeline:Protocol"] = "Configured pipeline protocol.",
+                        ["PipelinePresets:0:Pipeline:Stages:0:Type"] = "single_agent",
+                        ["PipelinePresets:0:Pipeline:Stages:0:Name"] = "Analyze image",
+                        ["PipelinePresets:0:Pipeline:Stages:0:Instructions"] = "Analyze the attached image.",
+                        ["PipelinePresets:0:Pipeline:Stages:0:Input:OriginalMessages"] = "full",
+                        ["PipelinePresets:0:Pipeline:Stages:0:Input:PriorStageOutput"] = "none",
+                        ["PipelinePresets:0:Pipeline:Stages:1:Type"] = "single_agent",
+                        ["PipelinePresets:0:Pipeline:Stages:1:Name"] = "Draft",
+                        ["PipelinePresets:0:Pipeline:Stages:1:Instructions"] = "Write a draft from observations.",
+                        ["PipelinePresets:0:Pipeline:Stages:1:Input:OriginalMessages"] = "none",
+                        ["PipelinePresets:0:Pipeline:Stages:1:Input:PriorStageOutput"] = "last"
+                    });
+                });
+                builder.ConfigureTestServices(services =>
+                {
+                    services.RemoveAll<IOpenAiCompatibleUpstreamClient>();
+                    services.RemoveAll<ITraceStore>();
+                    services.AddSingleton<IOpenAiCompatibleUpstreamClient>(upstream);
+                    services.AddSingleton<ITraceStore>(new RecordingTraceStore());
+                });
+            });
+
+        var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/v1/chat/completions", new ChatCompletionRequest
+        {
+            Model = "virtua-agent/media-description",
+            Messages =
+            [
+                new ChatMessageDto
+                {
+                    Role = "user",
+                    Content = ChatMessageContent.FromParts(
+                    [
+                        ChatMessageContentPart.FromText("Describe this image."),
+                        ChatMessageContentPart.FromImageUrl("data:image/png;base64,AAAABASE64")
+                    ])
+                }
+            ]
+        }, JsonOptions.Default);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, upstream.Requests.Count);
+        Assert.True(upstream.Requests[0].Messages[0].Content.IsParts);
+        var draftPrompt = Assert.Single(upstream.Requests[1].Messages).Content.AsText();
+        Assert.Contains("Prior stage output from \"Analyze image\":", draftPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Describe this image.", draftPrompt, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -422,10 +523,15 @@ public sealed class ChatCompletionsEndpointTests
 
     private sealed class RecordingTraceStore : ITraceStore
     {
+        public List<RunRecord> Runs { get; } = [];
         public List<ReasoningRecord> Reasonings { get; } = [];
 
         public Task InitializeAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-        public Task CreateRunAsync(RunRecord run, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task CreateRunAsync(RunRecord run, CancellationToken cancellationToken = default)
+        {
+            Runs.Add(run);
+            return Task.CompletedTask;
+        }
         public Task AppendEventAsync(string runId, TraceEventRecord traceEvent, CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task AppendReasoningAsync(string runId, ReasoningRecord reasoning, CancellationToken cancellationToken = default)
         {

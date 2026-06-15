@@ -38,7 +38,7 @@ public static class ChatCompletionsEndpoint
             await httpContext.Response.StartAsync(cancellationToken);
         }
 
-        var requestJson = JsonSerializer.Serialize(request, JsonOptions.Default);
+        var requestJson = JsonSerializer.Serialize(RedactRequestForTrace(request), JsonOptions.Default);
         var run = RunRecord.Started(runId, requestId, clientId, PreviewFrom(request), store) with
         {
             RequestJson = requestJson
@@ -150,7 +150,7 @@ public static class ChatCompletionsEndpoint
 
     private static async Task WriteFinalAnswerStreamAsync(HttpResponse response, ChatCompletionResponse completion, CancellationToken cancellationToken)
     {
-        var answer = completion.Choices.FirstOrDefault()?.Message.Content ?? "";
+        var answer = completion.Choices.FirstOrDefault()?.Message.Content.AsText() ?? "";
         var chunk = new
         {
             id = completion.Id,
@@ -196,8 +196,17 @@ public static class ChatCompletionsEndpoint
     {
         var userMessage = request.Messages.FirstOrDefault(message => message.Role.Equals("user", StringComparison.OrdinalIgnoreCase));
         if (userMessage is null) return "";
-        return userMessage.Content.Length <= 200 ? userMessage.Content : userMessage.Content[..200];
+        var content = userMessage.Content.AsText();
+        return content.Length <= 200 ? content : content[..200];
     }
+
+    private static ChatCompletionRequest RedactRequestForTrace(ChatCompletionRequest request) =>
+        request with
+        {
+            Messages = request.Messages
+                .Select(message => message with { Content = message.Content.RedactMedia() })
+                .ToList()
+        };
 
     private static string ErrorMessageFrom(Exception ex)
     {

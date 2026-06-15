@@ -23,6 +23,15 @@ export type SaveModelEndpointRequest = {
   api_key?: string | null;
 };
 
+export type PipelineSettings = {
+  pipeline_protocol?: string | null;
+  built_in_pipeline_protocol: string;
+};
+
+export type SavePipelineSettingsRequest = {
+  pipeline_protocol?: string | null;
+};
+
 export type AgentRequest = {
   endpoint_id?: string | null;
   model?: string | null;
@@ -30,11 +39,21 @@ export type AgentRequest = {
   max_tokens?: number | null;
 };
 
+export type OriginalMessagesInput = 'none' | 'text' | 'full';
+export type PriorStageOutputInput = 'none' | 'last';
+
+export type PipelineStageInput = {
+  original_messages?: OriginalMessagesInput | null;
+  prior_stage_output?: PriorStageOutputInput | null;
+};
+
 export type PipelineStage = {
   type: 'single_agent';
   name?: string | null;
   repeat: number;
   instructions?: string | null;
+  protocol?: string | null;
+  input?: PipelineStageInput | null;
   agent?: AgentRequest;
 };
 
@@ -43,6 +62,7 @@ export type Pipeline = {
   default_model?: string | null;
   default_temperature?: number | null;
   default_max_tokens?: number | null;
+  protocol?: string | null;
   stages: PipelineStage[];
 };
 
