@@ -442,7 +442,7 @@ public sealed class PipelineExecutor(
                 cancellationToken);
         }
 
-        await WriteReasoningChunkAsync(output, id, created, model, reasoning, metadata, cancellationToken);
+        await WriteReasoningChunkAsync(output, id, created, model, reasoning, cancellationToken);
     }
 
     private static async Task WriteReasoningChunkAsync(
@@ -451,7 +451,6 @@ public sealed class PipelineExecutor(
         long created,
         string model,
         string reasoning,
-        ReasoningMetadata virtuaAgent,
         CancellationToken cancellationToken)
     {
         var chunk = new
@@ -465,7 +464,7 @@ public sealed class PipelineExecutor(
                 new
                 {
                     index = 0,
-                    delta = new { reasoning, virtua_agent = virtuaAgent },
+                    delta = new { reasoning },
                     finish_reason = (string?)null
                 }
             }

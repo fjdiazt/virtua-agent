@@ -209,7 +209,12 @@ public sealed class ChatCompletionsEndpointTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("\"reasoning\":\"stage reasoning\"", body);
-        Assert.Contains("\"virtua_agent\":{\"stage_index\":0,\"execution_index\":0,\"iteration_index\":0,\"label\":\"Stage 1\"}", body);
+        Assert.DoesNotContain("\"virtua_agent\"", body);
+        Assert.DoesNotContain("\"stage_index\"", body);
+        Assert.DoesNotContain("\"execution_index\"", body);
+        Assert.DoesNotContain("\"iteration_index\"", body);
+        Assert.DoesNotContain("\"stage_name\"", body);
+        Assert.DoesNotContain("\"label\"", body);
         Assert.Contains("\"content\":\"final answer\"", body);
         Assert.Contains("data: [DONE]", body);
         var reasoning = Assert.Single(traceStore.Reasonings);
@@ -260,11 +265,12 @@ public sealed class ChatCompletionsEndpointTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Contains("\"reasoning\":\"hidden thought\"", body);
-        Assert.Contains("\"stage_index\":0", body);
-        Assert.Contains("\"execution_index\":0", body);
-        Assert.Contains("\"iteration_index\":0", body);
-        Assert.Contains("\"stage_name\":\"Draft\"", body);
-        Assert.Contains("\"label\":\"Draft\"", body);
+        Assert.DoesNotContain("\"virtua_agent\"", body);
+        Assert.DoesNotContain("\"stage_index\"", body);
+        Assert.DoesNotContain("\"execution_index\"", body);
+        Assert.DoesNotContain("\"iteration_index\"", body);
+        Assert.DoesNotContain("\"stage_name\"", body);
+        Assert.DoesNotContain("\"label\"", body);
         Assert.Contains("\"content\":\"final answer\"", body);
         Assert.DoesNotContain("<think>", body);
         var reasoning = Assert.Single(traceStore.Reasonings);
