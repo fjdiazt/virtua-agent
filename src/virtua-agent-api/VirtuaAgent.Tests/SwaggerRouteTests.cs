@@ -37,5 +37,11 @@ public sealed class SwaggerRouteTests
         var rawContentSchema = contentSchema.GetRawText();
         Assert.Contains("\"image_url\"", rawContentSchema, StringComparison.Ordinal);
         Assert.DoesNotContain("additionalProp1", json, StringComparison.Ordinal);
+
+        var inputSchema = schemas.GetProperty("PipelineStageInputRequestDto");
+        Assert.True(inputSchema.GetProperty("properties").TryGetProperty("original_messages", out _));
+        Assert.True(inputSchema.GetProperty("properties").TryGetProperty("prior_stage_output", out _));
+        var pipelineSchema = schemas.GetProperty("PipelineRequestDto");
+        Assert.True(pipelineSchema.GetProperty("properties").TryGetProperty("protocol", out _));
     }
 }

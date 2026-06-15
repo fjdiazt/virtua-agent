@@ -320,6 +320,66 @@ public sealed class ChatCompletionsEndpointTests
     }
 
     [Fact]
+    public async Task PresetPipelineUsesConfiguredStageInputSelectors()
+    {
+        var upstream = new FakeUpstreamClient("observations", "draft");
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureAppConfiguration((_, config) =>
+                {
+                    config.AddInMemoryCollection(new Dictionary<string, string?>
+                    {
+                        ["PipelinePresets:0:Id"] = "virtua-agent/media-description",
+                        ["PipelinePresets:0:Pipeline:Protocol"] = "Configured pipeline protocol.",
+                        ["PipelinePresets:0:Pipeline:Stages:0:Type"] = "single_agent",
+                        ["PipelinePresets:0:Pipeline:Stages:0:Name"] = "Analyze image",
+                        ["PipelinePresets:0:Pipeline:Stages:0:Instructions"] = "Analyze the attached image.",
+                        ["PipelinePresets:0:Pipeline:Stages:0:Input:OriginalMessages"] = "full",
+                        ["PipelinePresets:0:Pipeline:Stages:0:Input:PriorStageOutput"] = "none",
+                        ["PipelinePresets:0:Pipeline:Stages:1:Type"] = "single_agent",
+                        ["PipelinePresets:0:Pipeline:Stages:1:Name"] = "Draft",
+                        ["PipelinePresets:0:Pipeline:Stages:1:Instructions"] = "Write a draft from observations.",
+                        ["PipelinePresets:0:Pipeline:Stages:1:Input:OriginalMessages"] = "none",
+                        ["PipelinePresets:0:Pipeline:Stages:1:Input:PriorStageOutput"] = "last"
+                    });
+                });
+                builder.ConfigureTestServices(services =>
+                {
+                    services.RemoveAll<IOpenAiCompatibleUpstreamClient>();
+                    services.RemoveAll<ITraceStore>();
+                    services.AddSingleton<IOpenAiCompatibleUpstreamClient>(upstream);
+                    services.AddSingleton<ITraceStore>(new RecordingTraceStore());
+                });
+            });
+
+        var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/v1/chat/completions", new ChatCompletionRequest
+        {
+            Model = "virtua-agent/media-description",
+            Messages =
+            [
+                new ChatMessageDto
+                {
+                    Role = "user",
+                    Content = ChatMessageContent.FromParts(
+                    [
+                        ChatMessageContentPart.FromText("Describe this image."),
+                        ChatMessageContentPart.FromImageUrl("data:image/png;base64,AAAABASE64")
+                    ])
+                }
+            ]
+        }, JsonOptions.Default);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, upstream.Requests.Count);
+        Assert.True(upstream.Requests[0].Messages[0].Content.IsParts);
+        var draftPrompt = Assert.Single(upstream.Requests[1].Messages).Content.AsText();
+        Assert.Contains("Prior stage output from \"Analyze image\":", draftPrompt, StringComparison.Ordinal);
+        Assert.DoesNotContain("Describe this image.", draftPrompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task SqliteVirtuaAgentModelRunsPipelineFromNormalChatRequest()
     {
         var upstream = new FakeUpstreamClient("draft answer", "corrected answer");

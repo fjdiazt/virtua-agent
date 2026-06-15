@@ -48,6 +48,7 @@ public sealed class PipelineExecutor(
                     ? await upstreamClient.ChatAsync(stageRequest, cancellationToken)
                     : await upstreamClient.ChatAsync(stageRequest, endpoint, cancellationToken);
                 context.CurrentAnswer = lastResponse.Choices.FirstOrDefault()?.Message.Content.AsText() ?? "";
+                context.CurrentAnswerLabel = BuildStageOutputLabel(stageIndex, repeatIndex, stage);
 
                 await PublishAsync(runId, "agent_response", new { stage_index = executionIndex, content = context.CurrentAnswer }, store, cancellationToken);
                 await PublishAsync(runId, "stage_completed", new { stage_index = executionIndex }, store, cancellationToken);
@@ -156,6 +157,7 @@ public sealed class PipelineExecutor(
 
                 stageContent += thinkExtractor.Complete();
                 context.CurrentAnswer = stageContent.Trim();
+                context.CurrentAnswerLabel = BuildStageOutputLabel(stageIndex, repeatIndex, stage);
                 lastResponse = new ChatCompletionResponse
                 {
                     Id = string.IsNullOrWhiteSpace(responseId) ? "chatcmpl_" + Guid.NewGuid().ToString("N") : responseId,
@@ -219,6 +221,8 @@ public sealed class PipelineExecutor(
                 stage.Name,
                 stage.Repeat,
                 stage.Instructions,
+                stage.Protocol,
+                CompileInput(stage.Input, index),
                 stage.Agent,
                 stage.AgentSelection,
                 stage.Seed,
@@ -232,6 +236,7 @@ public sealed class PipelineExecutor(
             request.Orchestration?.Pipeline?.DefaultModel,
             request.Orchestration?.Pipeline?.DefaultTemperature,
             request.Orchestration?.Pipeline?.DefaultMaxTokens,
+            request.Orchestration?.Pipeline?.Protocol,
             definitions);
     }
 
@@ -251,9 +256,59 @@ public sealed class PipelineExecutor(
                         "instructions_required");
                 }
 
+                var input = PipelineStageInputDefinition.Resolve(stage.Input, executionIndex);
+                if (executionIndex == 0 && input.PriorStageOutput == "last")
+                {
+                    throw new PipelineValidationException(
+                        "The first pipeline execution cannot include prior stage output.",
+                        $"orchestration.pipeline.stages[{stageIndex}].input.prior_stage_output",
+                        "invalid_stage_input");
+                }
+
                 executionIndex++;
             }
         }
+    }
+
+    private static PipelineStageInputDefinition? CompileInput(PipelineStageInputRequestDto? input, int stageIndex)
+    {
+        if (input is null)
+        {
+            return null;
+        }
+
+        var originalMessages = NormalizeSelector(
+            input.OriginalMessages,
+            ["none", "text", "full"],
+            $"orchestration.pipeline.stages[{stageIndex}].input.original_messages");
+
+        var priorStageOutput = NormalizeSelector(
+            input.PriorStageOutput,
+            ["none", "last"],
+            $"orchestration.pipeline.stages[{stageIndex}].input.prior_stage_output");
+
+        return originalMessages is null && priorStageOutput is null
+            ? null
+            : new PipelineStageInputDefinition(originalMessages, priorStageOutput);
+    }
+
+    private static string? NormalizeSelector(string? value, string[] allowed, string param)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var normalized = value.Trim().ToLowerInvariant();
+        if (allowed.Contains(normalized))
+        {
+            return normalized;
+        }
+
+        throw new PipelineValidationException(
+            $"{param} must be one of: {string.Join(", ", allowed)}.",
+            param,
+            "invalid_stage_input");
     }
 
     private static AgentRequestDto? SelectAgent(PipelineStageDefinition stage, Random random)
@@ -279,7 +334,11 @@ public sealed class PipelineExecutor(
         AgentRequestDto? agent,
         int executionIndex)
     {
-        var messages = PipelinePromptBuilder.BuildStageMessages(context, stage, executionIndex);
+        var messages = PipelineStagePromptComposer.Compose(
+            context,
+            stage,
+            executionIndex,
+            stage.Protocol ?? pipeline.Protocol);
 
         return originalRequest with
         {
@@ -334,10 +393,7 @@ public sealed class PipelineExecutor(
 
     private static ReasoningMetadata BuildReasoningMetadata(int stageIndex, int executionIndex, int repeatIndex, PipelineStageDefinition stage)
     {
-        var baseLabel = string.IsNullOrWhiteSpace(stage.Name) ? $"Stage {stageIndex + 1}" : stage.Name;
-        var label = stage.Repeat > 1 && repeatIndex > 0
-            ? $"{baseLabel} #{repeatIndex + 1}"
-            : baseLabel;
+        var label = BuildStageOutputLabel(stageIndex, repeatIndex, stage);
 
         return new ReasoningMetadata
         {
@@ -347,6 +403,14 @@ public sealed class PipelineExecutor(
             Label = label,
             StageName = stage.Name
         };
+    }
+
+    private static string BuildStageOutputLabel(int stageIndex, int repeatIndex, PipelineStageDefinition stage)
+    {
+        var baseLabel = string.IsNullOrWhiteSpace(stage.Name) ? $"Stage {stageIndex + 1}" : stage.Name;
+        return stage.Repeat > 1
+            ? $"{baseLabel} #{repeatIndex + 1}"
+            : baseLabel;
     }
 
     private async Task AppendAndWriteReasoningAsync(

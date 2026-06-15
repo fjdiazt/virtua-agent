@@ -95,11 +95,13 @@ public sealed class PipelineExecutorTests
 
         await executor.ExecuteAsync("run_test", request, store: true);
 
-        var packaged = Assert.Single(upstream.Requests[0].Messages);
+        Assert.Equal(2, upstream.Requests[0].Messages.Count);
+        Assert.Equal(request.Messages[0], upstream.Requests[0].Messages[0]);
+        var packaged = upstream.Requests[0].Messages[1];
         Assert.Equal("user", packaged.Role);
-        Assert.Contains("Original conversation:", packaged.Content, StringComparison.Ordinal);
-        Assert.Contains("user: write answer", packaged.Content, StringComparison.Ordinal);
-        Assert.DoesNotContain("Previous stage output:", packaged.Content, StringComparison.Ordinal);
+        Assert.Contains("Pipeline protocol:", packaged.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("Original conversation:", packaged.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("Prior stage output:", packaged.Content, StringComparison.Ordinal);
         Assert.Contains("Stage instruction:", packaged.Content, StringComparison.Ordinal);
         Assert.Contains("Use bullet points.", packaged.Content, StringComparison.Ordinal);
     }
@@ -150,6 +152,51 @@ public sealed class PipelineExecutorTests
     }
 
     [Fact]
+    public async Task FirstStageDefaultInputPreservesOriginalMultimodalRequest()
+    {
+        var upstream = new RecordingUpstreamClient("observations");
+        var executor = CreateExecutor(upstream);
+        var request = new ChatCompletionRequest
+        {
+            Model = "vision-model",
+            Messages =
+            [
+                new ChatMessageDto
+                {
+                    Role = "user",
+                    Content = ChatMessageContent.FromParts(
+                    [
+                        ChatMessageContentPart.FromText("Describe this image."),
+                        ChatMessageContentPart.FromImageUrl("data:image/png;base64,AAAABASE64")
+                    ])
+                }
+            ],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    Stages =
+                    [
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Name = "Analyze image",
+                            Instructions = "Analyze the attached image."
+                        }
+                    ]
+                }
+            }
+        };
+
+        await executor.ExecuteAsync("run_test", request, store: true);
+
+        Assert.Equal(2, upstream.Requests[0].Messages.Count);
+        Assert.True(upstream.Requests[0].Messages[0].Content.IsParts);
+        Assert.Contains(upstream.Requests[0].Messages[0].Content.Parts, part => part.Type == "image_url");
+        Assert.Contains("Analyze the attached image.", upstream.Requests[0].Messages[1].Content.AsText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LaterStageWithInstructionsReceivesPipelineProtocolAndLabeledPromptSections()
     {
         var upstream = new RecordingUpstreamClient("draft answer", "corrected answer");
@@ -188,7 +235,7 @@ public sealed class PipelineExecutorTests
         Assert.Contains("Return only this stage's output.", packaged.Content, StringComparison.Ordinal);
         Assert.Contains("Original conversation:", packaged.Content, StringComparison.Ordinal);
         Assert.Contains("user: write answer", packaged.Content, StringComparison.Ordinal);
-        Assert.Contains("Prior stage output:", packaged.Content, StringComparison.Ordinal);
+        Assert.Contains("Prior stage output from \"Stage 1\":", packaged.Content, StringComparison.Ordinal);
         Assert.Contains("draft answer", packaged.Content, StringComparison.Ordinal);
         Assert.Contains("Stage instruction:", packaged.Content, StringComparison.Ordinal);
         Assert.Contains("Correct spelling only.", packaged.Content, StringComparison.Ordinal);
@@ -237,9 +284,252 @@ public sealed class PipelineExecutorTests
         Assert.True(upstream.Requests[0].Messages[0].Content.IsParts);
         var packaged = Assert.Single(upstream.Requests[1].Messages);
         Assert.False(packaged.Content.IsParts);
-        Assert.Contains("Prior stage output:", packaged.Content.AsText(), StringComparison.Ordinal);
+        Assert.Contains("Prior stage output from \"Stage 1\":", packaged.Content.AsText(), StringComparison.Ordinal);
         Assert.Contains("image observations", packaged.Content.AsText(), StringComparison.Ordinal);
         Assert.DoesNotContain("data:image/png;base64,AAAABASE64", packaged.Content.AsText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LaterStageCanReceiveOnlyPriorStageOutput()
+    {
+        var upstream = new RecordingUpstreamClient("visual observations", "draft description");
+        var executor = CreateExecutor(upstream);
+        var request = new ChatCompletionRequest
+        {
+            Model = "vision-model",
+            Messages =
+            [
+                new ChatMessageDto
+                {
+                    Role = "user",
+                    Content = ChatMessageContent.FromParts(
+                    [
+                        ChatMessageContentPart.FromText("Describe this image."),
+                        ChatMessageContentPart.FromImageUrl("data:image/png;base64,AAAABASE64")
+                    ])
+                }
+            ],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    Stages =
+                    [
+                        new PipelineStageRequestDto { Type = "single_agent", Name = "Analyze image" },
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Name = "Draft",
+                            Instructions = "Use the prior observations to draft a description.",
+                            Input = new PipelineStageInputRequestDto
+                            {
+                                OriginalMessages = "none",
+                                PriorStageOutput = "last"
+                            }
+                        }
+                    ]
+                }
+            }
+        };
+
+        await executor.ExecuteAsync("run_test", request, store: true);
+
+        var packaged = Assert.Single(upstream.Requests[1].Messages);
+        var text = packaged.Content.AsText();
+        Assert.Contains("Prior stage output from \"Analyze image\":", text, StringComparison.Ordinal);
+        Assert.Contains("visual observations", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Describe this image.", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("AAAABASE64", text, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("bad", "none", "orchestration.pipeline.stages[0].input.original_messages")]
+    [InlineData("full", "bad", "orchestration.pipeline.stages[0].input.prior_stage_output")]
+    public async Task InvalidStageInputSelectorIsRejected(string originalMessages, string priorStageOutput, string param)
+    {
+        var upstream = new RecordingUpstreamClient("answer");
+        var executor = CreateExecutor(upstream);
+        var request = new ChatCompletionRequest
+        {
+            Model = "local-model",
+            Messages = [new ChatMessageDto { Role = "user", Content = "hello" }],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    Stages =
+                    [
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Input = new PipelineStageInputRequestDto
+                            {
+                                OriginalMessages = originalMessages,
+                                PriorStageOutput = priorStageOutput
+                            }
+                        }
+                    ]
+                }
+            }
+        };
+
+        var ex = await Assert.ThrowsAsync<PipelineValidationException>(
+            () => executor.ExecuteAsync("run_test", request, store: true));
+
+        Assert.Equal("invalid_stage_input", ex.Code);
+        Assert.Equal(param, ex.Param);
+        Assert.Empty(upstream.Requests);
+    }
+
+    [Fact]
+    public async Task FirstExecutionCannotRequestPriorStageOutput()
+    {
+        var upstream = new RecordingUpstreamClient("answer");
+        var executor = CreateExecutor(upstream);
+        var request = new ChatCompletionRequest
+        {
+            Model = "local-model",
+            Messages = [new ChatMessageDto { Role = "user", Content = "hello" }],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    Stages =
+                    [
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Input = new PipelineStageInputRequestDto
+                            {
+                                OriginalMessages = "none",
+                                PriorStageOutput = "last"
+                            }
+                        }
+                    ]
+                }
+            }
+        };
+
+        var ex = await Assert.ThrowsAsync<PipelineValidationException>(
+            () => executor.ExecuteAsync("run_test", request, store: true));
+
+        Assert.Equal("invalid_stage_input", ex.Code);
+        Assert.Equal("orchestration.pipeline.stages[0].input.prior_stage_output", ex.Param);
+    }
+
+    [Fact]
+    public async Task PartialStageInputMergesWithExecutionDefault()
+    {
+        var upstream = new RecordingUpstreamClient("answer");
+        var executor = CreateExecutor(upstream);
+        var request = new ChatCompletionRequest
+        {
+            Model = "local-model",
+            Messages = [new ChatMessageDto { Role = "user", Content = "hello" }],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    Stages =
+                    [
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Instructions = "Answer directly.",
+                            Input = new PipelineStageInputRequestDto
+                            {
+                                OriginalMessages = "text"
+                            }
+                        }
+                    ]
+                }
+            }
+        };
+
+        await executor.ExecuteAsync("run_test", request, store: true);
+
+        var text = Assert.Single(upstream.Requests[0].Messages).Content.AsText();
+        Assert.Contains("Original conversation:", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Prior stage output", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PipelineProtocolOverridesBuiltInProtocol()
+    {
+        var upstream = new RecordingUpstreamClient("draft", "final");
+        var executor = CreateExecutor(upstream);
+        var request = new ChatCompletionRequest
+        {
+            Model = "local-model",
+            Messages = [new ChatMessageDto { Role = "user", Content = "hello" }],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    Protocol = "Pipeline-wide protocol.",
+                    Stages =
+                    [
+                        new PipelineStageRequestDto { Type = "single_agent" },
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Instructions = "Finalize.",
+                            Input = new PipelineStageInputRequestDto
+                            {
+                                OriginalMessages = "none",
+                                PriorStageOutput = "last"
+                            }
+                        }
+                    ]
+                }
+            }
+        };
+
+        await executor.ExecuteAsync("run_test", request, store: true);
+
+        var text = Assert.Single(upstream.Requests[1].Messages).Content.AsText();
+        Assert.Contains("Pipeline-wide protocol.", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("You are executing one stage in a pipeline.", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task StageProtocolOverridesPipelineProtocol()
+    {
+        var upstream = new RecordingUpstreamClient("draft", "final");
+        var executor = CreateExecutor(upstream);
+        var request = new ChatCompletionRequest
+        {
+            Model = "local-model",
+            Messages = [new ChatMessageDto { Role = "user", Content = "hello" }],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    Protocol = "Pipeline-wide protocol.",
+                    Stages =
+                    [
+                        new PipelineStageRequestDto { Type = "single_agent" },
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Protocol = "Stage-specific protocol.",
+                            Instructions = "Finalize.",
+                            Input = new PipelineStageInputRequestDto
+                            {
+                                OriginalMessages = "none",
+                                PriorStageOutput = "last"
+                            }
+                        }
+                    ]
+                }
+            }
+        };
+
+        await executor.ExecuteAsync("run_test", request, store: true);
+
+        var text = Assert.Single(upstream.Requests[1].Messages).Content.AsText();
+        Assert.Contains("Stage-specific protocol.", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Pipeline-wide protocol.", text, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -46,9 +46,18 @@ import {
   saveModelEndpoint,
   saveVirtuaAgentModel
 } from './api';
-import type { ModelEndpoint, SaveModelEndpointRequest, VirtuaAgentModel, PipelineStage } from './types';
+import type { ModelEndpoint, SaveModelEndpointRequest, VirtuaAgentModel, PipelineStage, PipelineStageInput } from './types';
 
 const defaultEndpointValue = '__default__';
+const originalMessageInputData = [
+  { value: 'full', label: 'Original messages: full' },
+  { value: 'text', label: 'Original messages: text only' },
+  { value: 'none', label: 'Original messages: none' }
+];
+const priorStageOutputInputData = [
+  { value: 'none', label: 'Prior output: none' },
+  { value: 'last', label: 'Prior output: last stage' }
+];
 
 function endpointSelectData(endpoints: ModelEndpoint[]) {
   return [
@@ -70,8 +79,16 @@ const emptyStage = (): PipelineStage => ({
   repeat: 1,
   name: '',
   instructions: '',
+  protocol: null,
+  input: null,
   agent: { endpoint_id: null, model: null, temperature: null, max_tokens: null }
 });
+
+function defaultStageInput(index: number): PipelineStageInput {
+  return index === 0
+    ? { original_messages: 'full', prior_stage_output: 'none' }
+    : { original_messages: 'text', prior_stage_output: 'last' };
+}
 
 const emptyModel = (baseModel?: string): VirtuaAgentModel => ({
   id: 'virtua-agent/new-model',
@@ -81,6 +98,7 @@ const emptyModel = (baseModel?: string): VirtuaAgentModel => ({
     default_model: baseModel ?? null,
     default_temperature: 0.2,
     default_max_tokens: 512,
+    protocol: null,
     stages: [emptyStage()]
   }
 });
@@ -373,6 +391,15 @@ function ModelsPage() {
                 onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_max_tokens: value === '' ? null : Number(value) } })}
               />
             </Group>
+            <Textarea
+              label="Pipeline protocol"
+              minRows={2}
+              value={draft.pipeline.protocol ?? ''}
+              onChange={(event) => setDraft({
+                ...draft,
+                pipeline: { ...draft.pipeline, protocol: event.currentTarget.value || null }
+              })}
+            />
 
             <Divider label="Pipeline" />
             <Stack>
@@ -445,6 +472,38 @@ function ModelsPage() {
                         onChange={(value) => updateStage(index, { ...stage, agent: { ...stage.agent, max_tokens: value === '' ? null : Number(value) } })}
                       />
                     </Group>
+                    <Group grow>
+                      <Select
+                        label="Original messages"
+                        data={originalMessageInputData}
+                        value={stage.input?.original_messages ?? defaultStageInput(index).original_messages}
+                        onChange={(value) => updateStage(index, {
+                          ...stage,
+                          input: {
+                            ...(stage.input ?? {}),
+                            original_messages: (value ?? defaultStageInput(index).original_messages) as 'none' | 'text' | 'full'
+                          }
+                        })}
+                      />
+                      <Select
+                        label="Prior output"
+                        data={priorStageOutputInputData}
+                        value={stage.input?.prior_stage_output ?? defaultStageInput(index).prior_stage_output}
+                        onChange={(value) => updateStage(index, {
+                          ...stage,
+                          input: {
+                            ...(stage.input ?? {}),
+                            prior_stage_output: (value ?? defaultStageInput(index).prior_stage_output) as 'none' | 'last'
+                          }
+                        })}
+                      />
+                    </Group>
+                    <Textarea
+                      label="Stage protocol"
+                      minRows={2}
+                      value={stage.protocol ?? ''}
+                      onChange={(event) => updateStage(index, { ...stage, protocol: event.currentTarget.value || null })}
+                    />
                     <Textarea
                       label="Instructions"
                       minRows={3}

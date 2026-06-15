@@ -25,6 +25,7 @@ public sealed record PipelineRequestDto
     [JsonPropertyName("default_max_tokens")]
     public int? DefaultMaxTokens { get; init; }
 
+    public string? Protocol { get; init; }
     public List<PipelineStageRequestDto> Stages { get; init; } = [];
 }
 
@@ -34,6 +35,8 @@ public sealed record PipelineStageRequestDto
     public string? Name { get; init; }
     public int Repeat { get; init; } = 1;
     public string? Instructions { get; init; }
+    public string? Protocol { get; init; }
+    public PipelineStageInputRequestDto? Input { get; init; }
 
     [JsonPropertyName("agent_selection")]
     public string? AgentSelection { get; init; }
@@ -41,6 +44,15 @@ public sealed record PipelineStageRequestDto
     public int? Seed { get; init; }
     public AgentRequestDto? Agent { get; init; }
     public List<AgentRequestDto> Agents { get; init; } = [];
+}
+
+public sealed record PipelineStageInputRequestDto
+{
+    [JsonPropertyName("original_messages")]
+    public string? OriginalMessages { get; init; }
+
+    [JsonPropertyName("prior_stage_output")]
+    public string? PriorStageOutput { get; init; }
 }
 
 public sealed record AgentRequestDto
