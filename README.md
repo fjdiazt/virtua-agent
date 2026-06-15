@@ -312,6 +312,8 @@ Invoke-RestMethod -Method Delete http://localhost:<port>/v1/pipeline-models/virt
 
 Virtua Agent rejects nested pipeline model references inside pipeline stage agents to avoid recursive orchestration.
 
+The Models UI can export the current model as one JSON object or all saved models as an array. Import accepts pasted JSON or a `.json` file in either shape and saves each model through the same `/v1/pipeline-models` upsert path, so matching ids are overwritten.
+
 ## Stage Input Routing
 
 Pipeline stages can choose what each upstream model call receives:

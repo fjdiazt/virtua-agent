@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActionIcon,
   Alert,
@@ -30,6 +30,8 @@ import {
   IconBook2,
   IconBrandOpenai,
   IconChevronRight,
+  IconDownload,
+  IconFileImport,
   IconPlus,
   IconSettings,
   IconTrash
@@ -134,6 +136,45 @@ type ModelLoadError = {
   message: string;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function importedModelsFromJson(value: unknown): VirtuaAgentModel[] {
+  const models = Array.isArray(value) ? value : [value];
+  if (models.length === 0) {
+    throw new Error('Import file must contain one model or an array of models.');
+  }
+
+  models.forEach((model, index) => {
+    if (!isRecord(model) || typeof model.id !== 'string' || !isRecord(model.pipeline)) {
+      throw new Error(`Import item ${index + 1} must have id and pipeline.`);
+    }
+
+    if (!Array.isArray(model.pipeline.stages)) {
+      throw new Error(`Import item ${index + 1} pipeline must have stages.`);
+    }
+  });
+
+  return models as VirtuaAgentModel[];
+}
+
+function safeJsonFilename(value: string) {
+  return value.trim().replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || 'virtua-agent-model';
+}
+
+function downloadJson(filename: string, value: unknown) {
+  const blob = new Blob([`${JSON.stringify(value, null, 2)}\n`], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 export function App() {
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -205,6 +246,7 @@ export function App() {
 
 function ModelsPage() {
   const isSmall = useMediaQuery('(max-width: 700px)');
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [endpoints, setEndpoints] = useState<ModelEndpoint[]>([]);
   const [endpointModels, setEndpointModels] = useState<Record<string, string[]>>({});
   const [upstreamModels, setUpstreamModels] = useState<string[]>([]);
@@ -213,6 +255,9 @@ function ModelsPage() {
   const [pipelineSettings, setPipelineSettings] = useState<PipelineSettings | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importing, setImporting] = useState(false);
   const [draft, setDraft] = useState<VirtuaAgentModel>(() => emptyModel());
 
   const selected = useMemo(
@@ -338,6 +383,51 @@ function ModelsPage() {
     await refresh();
   }
 
+  function exportAllModels() {
+    if (items.length === 0) return;
+    downloadJson('virtua-agent-models.json', items);
+  }
+
+  function exportDraftModel() {
+    downloadJson(`${safeJsonFilename(draft.id)}.json`, draft);
+  }
+
+  async function readImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) return;
+
+    setImportText(await file.text());
+  }
+
+  async function importModels() {
+    if (!importText.trim()) {
+      notifications.show({ color: 'red', message: 'Paste JSON or browse a file.' });
+      return;
+    }
+
+    setImporting(true);
+    try {
+      const imported = importedModelsFromJson(JSON.parse(importText));
+      for (const model of imported) {
+        await saveVirtuaAgentModel(model);
+      }
+
+      notifications.show({
+        color: 'green',
+        message: imported.length === 1 ? `Imported ${imported[0].id}` : `Imported ${imported.length} models`
+      });
+      setImportOpen(false);
+      setImportText('');
+      await refresh();
+      setSelectedId(imported[0]?.id ?? null);
+    } catch (error) {
+      notifications.show({ color: 'red', message: error instanceof Error ? error.message : 'Failed to import JSON' });
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <Stack gap="lg">
       <Group justify="space-between">
@@ -345,10 +435,72 @@ function ModelsPage() {
           <Title order={2}>Virtua Agent Models</Title>
           <Text c="dimmed">Pipeline-backed models exposed through `/v1/models`.</Text>
         </Box>
-        <Button leftSection={<IconPlus size={16} />} onClick={newModel}>
-          New model
-        </Button>
+        <Group>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={(event) => void readImportFile(event)}
+          />
+          <Button
+            variant="light"
+            leftSection={<IconFileImport size={16} />}
+            onClick={() => setImportOpen(true)}
+          >
+            Import JSON
+          </Button>
+          <Button
+            variant="light"
+            disabled={items.length === 0}
+            leftSection={<IconDownload size={16} />}
+            onClick={exportAllModels}
+          >
+            Export all
+          </Button>
+          <Button leftSection={<IconPlus size={16} />} onClick={newModel}>
+            New model
+          </Button>
+        </Group>
       </Group>
+
+      <Modal
+        opened={importOpen}
+        onClose={() => {
+          if (!importing) setImportOpen(false);
+        }}
+        title="Import pipeline models"
+        size="lg"
+        centered={!isSmall}
+      >
+        <Stack>
+          <Textarea
+            label="JSON"
+            autosize
+            minRows={10}
+            maxRows={20}
+            value={importText}
+            onChange={(event) => setImportText(event.currentTarget.value)}
+          />
+          <Group justify="space-between">
+            <Button
+              variant="light"
+              leftSection={<IconFileImport size={16} />}
+              onClick={() => importInputRef.current?.click()}
+            >
+              Browse file
+            </Button>
+            <Group>
+              <Button variant="subtle" disabled={importing} onClick={() => setImportOpen(false)}>
+                Cancel
+              </Button>
+              <Button loading={importing} leftSection={<IconFileImport size={16} />} onClick={() => void importModels()}>
+                Import
+              </Button>
+            </Group>
+          </Group>
+        </Stack>
+      </Modal>
 
       {Object.keys(modelLoadErrors).length > 0 && (
         <Alert color="yellow" title="Model discovery unavailable">
@@ -582,6 +734,9 @@ function ModelsPage() {
                 Add stage
               </Button>
               <Group>
+                <Button variant="light" leftSection={<IconDownload size={16} />} onClick={exportDraftModel}>
+                  Export JSON
+                </Button>
                 <Button variant="subtle" color="red" leftSection={<IconTrash size={16} />} onClick={() => void remove()}>
                   Delete
                 </Button>
