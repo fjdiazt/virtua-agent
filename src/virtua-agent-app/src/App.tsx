@@ -283,6 +283,8 @@ function ModelsPage() {
   }, []);
 
   useEffect(() => {
+    pruneModelLoadErrorsForModel(selected);
+
     if (selected) {
       setDraft(structuredClone(selected));
       void loadModelsForEndpoint(selected.pipeline.default_endpoint_id);
@@ -338,6 +340,24 @@ function ModelsPage() {
     }
   }
 
+  function referencedEndpointKeys(model?: VirtuaAgentModel | null) {
+    const keys = new Set<string>([defaultEndpointValue]);
+    if (!model) return keys;
+
+    keys.add(endpointValue(model.pipeline.default_endpoint_id));
+    model.pipeline.stages.forEach((stage) => {
+      keys.add(endpointValue(stage.agent?.endpoint_id));
+    });
+    return keys;
+  }
+
+  function pruneModelLoadErrorsForModel(model?: VirtuaAgentModel | null) {
+    const referencedKeys = referencedEndpointKeys(model);
+    setModelLoadErrors((current) => Object.fromEntries(
+      Object.entries(current).filter(([key]) => referencedKeys.has(key))
+    ));
+  }
+
   function endpointLabel(endpointId?: string | null) {
     if (!endpointId) return 'Default upstream';
     return endpoints.find((endpoint) => endpoint.id === endpointId)?.name ?? endpointId;
@@ -349,7 +369,10 @@ function ModelsPage() {
   }
 
   async function retryModelDiscovery() {
-    const errors = Object.values(modelLoadErrors);
+    const referencedKeys = referencedEndpointKeys(selected);
+    const errors = Object.values(modelLoadErrors)
+      .filter((error) => referencedKeys.has(endpointValue(error.endpointId)));
+    pruneModelLoadErrorsForModel(selected);
     await Promise.all(errors.map((error) => loadModelsForEndpoint(error.endpointId, { force: true })));
   }
 
