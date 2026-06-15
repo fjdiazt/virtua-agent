@@ -1000,6 +1000,13 @@ function SettingsPage() {
 
         <Paper withBorder p="lg">
           <Stack>
+            {selected && (
+              <TextInput
+                label="Endpoint id"
+                value={selected.id}
+                readOnly
+              />
+            )}
             <Group grow align="end">
               <TextInput
                 label="Name"
