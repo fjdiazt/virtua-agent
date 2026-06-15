@@ -304,6 +304,8 @@ Save a pipeline-backed model:
 }
 ```
 
+`ownedBy` is optional metadata for the saved model owner; `/v1/models` returns it as `owned_by` and defaults blank values to `virtua_agent`.
+
 Delete by id:
 
 ```powershell
