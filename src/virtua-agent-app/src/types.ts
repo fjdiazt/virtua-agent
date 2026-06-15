@@ -23,6 +23,15 @@ export type SaveModelEndpointRequest = {
   api_key?: string | null;
 };
 
+export type PipelineSettings = {
+  pipeline_protocol?: string | null;
+  built_in_pipeline_protocol: string;
+};
+
+export type SavePipelineSettingsRequest = {
+  pipeline_protocol?: string | null;
+};
+
 export type AgentRequest = {
   endpoint_id?: string | null;
   model?: string | null;

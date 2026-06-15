@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using VirtuaAgent.OpenAi;
 using VirtuaAgent.ModelEndpoints;
 using VirtuaAgent.PipelineModels;
+using VirtuaAgent.Settings;
 using VirtuaAgent.Tracing;
 using VirtuaAgent.Upstream;
 
@@ -12,6 +13,7 @@ namespace VirtuaAgent.Orchestration;
 public sealed class PipelineExecutor(
     IOpenAiCompatibleUpstreamClient upstreamClient,
     IModelEndpointStore modelEndpointStore,
+    IPipelineSettingsStore pipelineSettingsStore,
     ITraceStore traceStore,
     ActiveTraceHub traceHub)
 {
@@ -22,6 +24,7 @@ public sealed class PipelineExecutor(
         CancellationToken cancellationToken = default)
     {
         var pipeline = Compile(request);
+        var settings = await pipelineSettingsStore.GetAsync(cancellationToken);
         var context = new PipelineContext(runId, request.Messages);
         ChatCompletionResponse? lastResponse = null;
         var executionIndex = 0;
@@ -34,7 +37,7 @@ public sealed class PipelineExecutor(
             {
                 await PublishAsync(runId, "stage_started", new { stage_index = executionIndex, stage_type = stage.Type, stage_name = stage.Name }, store, cancellationToken);
                 var agent = SelectAgent(stage, random);
-                var stageRequest = BuildSingleAgentRequest(request, context, pipeline, stage, agent, executionIndex);
+                var stageRequest = BuildSingleAgentRequest(request, context, pipeline, stage, agent, executionIndex, settings.PipelineProtocol);
                 var endpoint = await ResolveEndpointAsync(agent?.EndpointId ?? pipeline.DefaultEndpointId, $"orchestration.pipeline.stages[{stageIndex}].agent.endpoint_id", cancellationToken);
                 await PublishAsync(runId, "agent_request", new
                 {
@@ -72,6 +75,7 @@ public sealed class PipelineExecutor(
         CancellationToken cancellationToken = default)
     {
         var pipeline = Compile(request);
+        var settings = await pipelineSettingsStore.GetAsync(cancellationToken);
         var context = new PipelineContext(runId, request.Messages);
         ChatCompletionResponse? lastResponse = null;
         var executionIndex = 0;
@@ -84,7 +88,7 @@ public sealed class PipelineExecutor(
             {
                 await PublishAsync(runId, "stage_started", new { stage_index = executionIndex, stage_type = stage.Type, stage_name = stage.Name }, store, cancellationToken);
                 var agent = SelectAgent(stage, random);
-                var stageRequest = BuildSingleAgentRequest(request, context, pipeline, stage, agent, executionIndex) with { Stream = true };
+                var stageRequest = BuildSingleAgentRequest(request, context, pipeline, stage, agent, executionIndex, settings.PipelineProtocol) with { Stream = true };
                 var endpoint = await ResolveEndpointAsync(agent?.EndpointId ?? pipeline.DefaultEndpointId, $"orchestration.pipeline.stages[{stageIndex}].agent.endpoint_id", cancellationToken);
                 await PublishAsync(runId, "agent_request", new
                 {
@@ -332,13 +336,14 @@ public sealed class PipelineExecutor(
         PipelineDefinition pipeline,
         PipelineStageDefinition stage,
         AgentRequestDto? agent,
-        int executionIndex)
+        int executionIndex,
+        string? settingsPipelineProtocol)
     {
         var messages = PipelineStagePromptComposer.Compose(
             context,
             stage,
             executionIndex,
-            stage.Protocol ?? pipeline.Protocol);
+            stage.Protocol ?? pipeline.Protocol ?? settingsPipelineProtocol);
 
         return originalRequest with
         {

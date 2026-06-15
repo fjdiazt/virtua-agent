@@ -2,7 +2,9 @@ import type {
   ModelDto,
   ModelEndpoint,
   ModelListResponse,
+  PipelineSettings,
   SaveModelEndpointRequest,
+  SavePipelineSettingsRequest,
   VirtuaAgentModel
 } from './types';
 
@@ -77,6 +79,20 @@ export async function listVirtuaAgentModels(): Promise<VirtuaAgentModel[]> {
 export async function listModelEndpoints(): Promise<ModelEndpoint[]> {
   const response = await fetch('/v1/model-endpoints');
   return readJson<ModelEndpoint[]>(response);
+}
+
+export async function getPipelineSettings(): Promise<PipelineSettings> {
+  const response = await fetch('/v1/settings');
+  return readJson<PipelineSettings>(response);
+}
+
+export async function savePipelineSettings(settings: SavePipelineSettingsRequest): Promise<PipelineSettings> {
+  const response = await fetch('/v1/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings)
+  });
+  return readJson<PipelineSettings>(response);
 }
 
 export async function saveModelEndpoint(endpoint: SaveModelEndpointRequest): Promise<ModelEndpoint> {

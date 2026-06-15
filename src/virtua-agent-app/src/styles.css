@@ -24,6 +24,13 @@ body {
   width: 100%;
 }
 
+.mobile-brand-logo {
+  display: block;
+  height: 32px;
+  object-fit: contain;
+  width: 32px;
+}
+
 .models-grid {
   display: grid;
   gap: 16px;
@@ -63,6 +70,19 @@ body {
   padding: 12px;
 }
 
+.stage-primary-grid {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.stage-secondary-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .run-json {
   background: var(--mantine-color-dark-8);
   border: 1px solid var(--mantine-color-dark-4);
@@ -89,5 +109,10 @@ body {
 @media (max-width: 700px) {
   .optional-column {
     display: none;
+  }
+
+  .stage-primary-grid,
+  .stage-secondary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

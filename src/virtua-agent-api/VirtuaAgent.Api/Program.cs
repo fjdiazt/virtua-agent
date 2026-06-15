@@ -3,6 +3,7 @@ using VirtuaAgent.ModelEndpoints;
 using VirtuaAgent.PipelineModels;
 using VirtuaAgent.OpenAi;
 using VirtuaAgent.Orchestration;
+using VirtuaAgent.Settings;
 using VirtuaAgent.Storage;
 using VirtuaAgent.Tracing;
 using VirtuaAgent.Upstream;
@@ -43,6 +44,14 @@ builder.Services.AddSingleton<IModelEndpointStore>(_ =>
     var connectionString = builder.Configuration.GetValue<string>("TraceStore:ConnectionString")
         ?? "Data Source=virtua-agent.db";
     var store = new SqliteModelEndpointStore(connectionString);
+    store.InitializeAsync().GetAwaiter().GetResult();
+    return store;
+});
+builder.Services.AddSingleton<IPipelineSettingsStore>(_ =>
+{
+    var connectionString = builder.Configuration.GetValue<string>("TraceStore:ConnectionString")
+        ?? "Data Source=virtua-agent.db";
+    var store = new SqlitePipelineSettingsStore(connectionString);
     store.InitializeAsync().GetAwaiter().GetResult();
     return store;
 });
@@ -105,6 +114,12 @@ app.MapDelete("/v1/model-endpoints/{id}", ModelEndpointsEndpoint.DeleteAsync)
 app.MapGet("/v1/model-endpoints/{id}/models", ModelEndpointsEndpoint.ListModelsAsync)
     .WithName("ListModelEndpointModels")
     .WithSummary("List models from a configured OpenAI-compatible model endpoint");
+app.MapGet("/v1/settings", PipelineSettingsEndpoint.GetAsync)
+    .WithName("GetPipelineSettings")
+    .WithSummary("Get Virtua Agent settings");
+app.MapPut("/v1/settings", PipelineSettingsEndpoint.SaveAsync)
+    .WithName("SavePipelineSettings")
+    .WithSummary("Save Virtua Agent settings");
 app.MapGet("/v1/orchestrations/{runId}", OrchestrationRunsEndpoint.GetAsync)
     .WithName("GetOrchestrationRun")
     .WithSummary("Get a Virtua Agent orchestration run");

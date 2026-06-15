@@ -3,6 +3,7 @@ using VirtuaAgent.OpenAi;
 using VirtuaAgent.ModelEndpoints;
 using VirtuaAgent.Orchestration;
 using VirtuaAgent.PipelineModels;
+using VirtuaAgent.Settings;
 using VirtuaAgent.Tracing;
 using VirtuaAgent.Upstream;
 
@@ -457,7 +458,7 @@ public sealed class PipelineExecutorTests
     public async Task PipelineProtocolOverridesBuiltInProtocol()
     {
         var upstream = new RecordingUpstreamClient("draft", "final");
-        var executor = CreateExecutor(upstream);
+        var executor = CreateExecutor(upstream, "Settings-level protocol.");
         var request = new ChatCompletionRequest
         {
             Model = "local-model",
@@ -489,6 +490,45 @@ public sealed class PipelineExecutorTests
 
         var text = Assert.Single(upstream.Requests[1].Messages).Content.AsText();
         Assert.Contains("Pipeline-wide protocol.", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Settings-level protocol.", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("You are executing one stage in a pipeline.", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SettingsPipelineProtocolOverridesBuiltInProtocol()
+    {
+        var upstream = new RecordingUpstreamClient("draft", "final");
+        var executor = CreateExecutor(upstream, "Settings-level protocol.");
+        var request = new ChatCompletionRequest
+        {
+            Model = "local-model",
+            Messages = [new ChatMessageDto { Role = "user", Content = "hello" }],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    Stages =
+                    [
+                        new PipelineStageRequestDto { Type = "single_agent" },
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Instructions = "Finalize.",
+                            Input = new PipelineStageInputRequestDto
+                            {
+                                OriginalMessages = "none",
+                                PriorStageOutput = "last"
+                            }
+                        }
+                    ]
+                }
+            }
+        };
+
+        await executor.ExecuteAsync("run_test", request, store: true);
+
+        var text = Assert.Single(upstream.Requests[1].Messages).Content.AsText();
+        Assert.Contains("Settings-level protocol.", text, StringComparison.Ordinal);
         Assert.DoesNotContain("You are executing one stage in a pipeline.", text, StringComparison.Ordinal);
     }
 
@@ -496,7 +536,7 @@ public sealed class PipelineExecutorTests
     public async Task StageProtocolOverridesPipelineProtocol()
     {
         var upstream = new RecordingUpstreamClient("draft", "final");
-        var executor = CreateExecutor(upstream);
+        var executor = CreateExecutor(upstream, "Settings-level protocol.");
         var request = new ChatCompletionRequest
         {
             Model = "local-model",
@@ -530,6 +570,7 @@ public sealed class PipelineExecutorTests
         var text = Assert.Single(upstream.Requests[1].Messages).Content.AsText();
         Assert.Contains("Stage-specific protocol.", text, StringComparison.Ordinal);
         Assert.DoesNotContain("Pipeline-wide protocol.", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Settings-level protocol.", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -596,7 +637,7 @@ public sealed class PipelineExecutorTests
             Name = "llama.cpp",
             BaseUrl = "http://llama.test"
         });
-        var executor = new PipelineExecutor(upstream, endpointStore, new NoopTraceStore(), new ActiveTraceHub());
+        var executor = new PipelineExecutor(upstream, endpointStore, new FakePipelineSettingsStore(), new NoopTraceStore(), new ActiveTraceHub());
         var request = new ChatCompletionRequest
         {
             Model = "virtua-agent/editor",
@@ -787,8 +828,8 @@ public sealed class PipelineExecutorTests
             throw new NotSupportedException();
     }
 
-    private static PipelineExecutor CreateExecutor(IOpenAiCompatibleUpstreamClient upstream) =>
-        new(upstream, new FakeModelEndpointStore(), new NoopTraceStore(), new ActiveTraceHub());
+    private static PipelineExecutor CreateExecutor(IOpenAiCompatibleUpstreamClient upstream, string? pipelineProtocol = null) =>
+        new(upstream, new FakeModelEndpointStore(), new FakePipelineSettingsStore(pipelineProtocol), new NoopTraceStore(), new ActiveTraceHub());
 
     private sealed class FakeModelEndpointStore(params ModelEndpointDefinition[] endpoints) : IModelEndpointStore
     {
@@ -804,6 +845,17 @@ public sealed class PipelineExecutorTests
             throw new NotSupportedException();
 
         public Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class FakePipelineSettingsStore(string? pipelineProtocol = null) : IPipelineSettingsStore
+    {
+        public Task<PipelineSettingsDefinition> GetAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PipelineSettingsDefinition { PipelineProtocol = pipelineProtocol });
+
+        public Task<PipelineSettingsDefinition> SaveAsync(
+            SavePipelineSettingsRequest request,
+            CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
     }
 
