@@ -77,10 +77,11 @@ body {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.sampling-grid,
 .stage-secondary-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .run-json {
@@ -111,6 +112,7 @@ body {
     display: none;
   }
 
+  .sampling-grid,
   .stage-primary-grid,
   .stage-secondary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -36,6 +36,10 @@ export type AgentRequest = {
   endpoint_id?: string | null;
   model?: string | null;
   temperature?: number | null;
+  top_p?: number | null;
+  top_k?: number | null;
+  min_p?: number | null;
+  repeat_penalty?: number | null;
   max_tokens?: number | null;
 };
 
@@ -61,6 +65,10 @@ export type Pipeline = {
   default_endpoint_id?: string | null;
   default_model?: string | null;
   default_temperature?: number | null;
+  default_top_p?: number | null;
+  default_top_k?: number | null;
+  default_min_p?: number | null;
+  default_repeat_penalty?: number | null;
   default_max_tokens?: number | null;
   protocol?: string | null;
   stages: PipelineStage[];

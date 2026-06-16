@@ -93,7 +93,16 @@ const emptyStage = (): PipelineStage => ({
   instructions: '',
   protocol: null,
   input: null,
-  agent: { endpoint_id: null, model: null, temperature: null, max_tokens: null }
+  agent: {
+    endpoint_id: null,
+    model: null,
+    temperature: null,
+    top_p: null,
+    top_k: null,
+    min_p: null,
+    repeat_penalty: null,
+    max_tokens: null
+  }
 });
 
 function defaultStageInput(index: number): PipelineStageInput {
@@ -124,6 +133,10 @@ const emptyModel = (baseModel?: string): VirtuaAgentModel => ({
     default_endpoint_id: null,
     default_model: baseModel ?? null,
     default_temperature: 0.2,
+    default_top_p: null,
+    default_top_k: null,
+    default_min_p: null,
+    default_repeat_penalty: null,
     default_max_tokens: 512,
     protocol: null,
     stages: [emptyStage()]
@@ -186,6 +199,10 @@ function downloadJson(filename: string, value: unknown) {
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function nullableNumber(value: string | number | null | undefined) {
+  return value === '' || value === null || value === undefined ? null : Number(value);
 }
 
 export function App() {
@@ -630,21 +647,53 @@ function ModelsPage() {
                 searchable
                 onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_model: value } })}
               />
+            </Group>
+            <Box className="sampling-grid">
               <NumberInput
                 label="Default temperature"
                 min={0}
                 max={2}
                 step={0.1}
                 value={draft.pipeline.default_temperature ?? undefined}
-                onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_temperature: value === '' ? null : Number(value) } })}
+                onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_temperature: nullableNumber(value) } })}
+              />
+              <NumberInput
+                label="Default top P"
+                min={0}
+                max={1}
+                step={0.05}
+                value={draft.pipeline.default_top_p ?? undefined}
+                onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_top_p: nullableNumber(value) } })}
+              />
+              <NumberInput
+                label="Default top K"
+                min={0}
+                step={1}
+                value={draft.pipeline.default_top_k ?? undefined}
+                onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_top_k: nullableNumber(value) } })}
+              />
+              <NumberInput
+                label="Default min P"
+                min={0}
+                max={1}
+                step={0.01}
+                value={draft.pipeline.default_min_p ?? undefined}
+                onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_min_p: nullableNumber(value) } })}
+              />
+              <NumberInput
+                label="Default repeat penalty"
+                min={0}
+                step={0.05}
+                value={draft.pipeline.default_repeat_penalty ?? undefined}
+                onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_repeat_penalty: nullableNumber(value) } })}
               />
               <NumberInput
                 label="Default max tokens"
                 min={1}
                 value={draft.pipeline.default_max_tokens ?? undefined}
-                onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_max_tokens: value === '' ? null : Number(value) } })}
+                onChange={(value) => setDraft({ ...draft, pipeline: { ...draft.pipeline, default_max_tokens: nullableNumber(value) } })}
               />
-            </Group>
+            </Box>
             <Textarea
               label="Protocol override"
               description={modelProtocolSource(draft.pipeline.protocol, pipelineSettings)}
@@ -720,13 +769,43 @@ function ModelsPage() {
                         max={2}
                         step={0.1}
                         value={stage.agent?.temperature ?? undefined}
-                        onChange={(value) => updateStage(index, { ...stage, agent: { ...stage.agent, temperature: value === '' ? null : Number(value) } })}
+                        onChange={(value) => updateStage(index, { ...stage, agent: { ...stage.agent, temperature: nullableNumber(value) } })}
+                      />
+                      <NumberInput
+                        label="Top P"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={stage.agent?.top_p ?? undefined}
+                        onChange={(value) => updateStage(index, { ...stage, agent: { ...stage.agent, top_p: nullableNumber(value) } })}
+                      />
+                      <NumberInput
+                        label="Top K"
+                        min={0}
+                        step={1}
+                        value={stage.agent?.top_k ?? undefined}
+                        onChange={(value) => updateStage(index, { ...stage, agent: { ...stage.agent, top_k: nullableNumber(value) } })}
+                      />
+                      <NumberInput
+                        label="Min P"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={stage.agent?.min_p ?? undefined}
+                        onChange={(value) => updateStage(index, { ...stage, agent: { ...stage.agent, min_p: nullableNumber(value) } })}
+                      />
+                      <NumberInput
+                        label="Repeat penalty"
+                        min={0}
+                        step={0.05}
+                        value={stage.agent?.repeat_penalty ?? undefined}
+                        onChange={(value) => updateStage(index, { ...stage, agent: { ...stage.agent, repeat_penalty: nullableNumber(value) } })}
                       />
                       <NumberInput
                         label="Max tokens"
                         min={1}
                         value={stage.agent?.max_tokens ?? undefined}
-                        onChange={(value) => updateStage(index, { ...stage, agent: { ...stage.agent, max_tokens: value === '' ? null : Number(value) } })}
+                        onChange={(value) => updateStage(index, { ...stage, agent: { ...stage.agent, max_tokens: nullableNumber(value) } })}
                       />
                     </Box>
                     <Group grow>
