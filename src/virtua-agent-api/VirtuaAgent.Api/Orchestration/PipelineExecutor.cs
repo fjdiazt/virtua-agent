@@ -432,8 +432,11 @@ public sealed class PipelineExecutor(
             : baseLabel;
     }
 
-    private static string BuildReasoningStageHeader(ReasoningMetadata metadata) =>
-        $"[Stage: {metadata.Label}]\n\n";
+    private static string BuildReasoningStageHeader(ReasoningMetadata metadata)
+    {
+        var prefix = metadata.ExecutionIndex == 0 ? "" : "\n\n";
+        return $"{prefix}===============\nStage: {metadata.Label}\n===============\n\n";
+    }
 
     private async Task AppendAndWriteReasoningAsync(
         string runId,

@@ -208,7 +208,7 @@ public sealed class ChatCompletionsEndpointTests
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var stageHeader = "\"reasoning\":\"[Stage: Stage 1]\\n\\n\"";
+        var stageHeader = "\"reasoning\":\"===============\\nStage: Stage 1\\n===============\\n\\n\"";
         Assert.Contains(stageHeader, body);
         Assert.Contains("\"reasoning\":\"stage reasoning\"", body);
         Assert.True(
@@ -225,7 +225,7 @@ public sealed class ChatCompletionsEndpointTests
         var reasoning = Assert.Single(traceStore.Reasonings);
         Assert.Equal("Stage 1", reasoning.Label);
         Assert.Equal("stage reasoning", reasoning.Content);
-        Assert.DoesNotContain("[Stage:", reasoning.Content);
+        Assert.DoesNotContain("===============", reasoning.Content);
     }
 
     [Fact]
@@ -270,7 +270,7 @@ public sealed class ChatCompletionsEndpointTests
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var stageHeader = "\"reasoning\":\"[Stage: Draft]\\n\\n\"";
+        var stageHeader = "\"reasoning\":\"===============\\nStage: Draft\\n===============\\n\\n\"";
         Assert.Contains(stageHeader, body);
         Assert.Contains("\"reasoning\":\"hidden thought\"", body);
         Assert.True(
@@ -287,7 +287,62 @@ public sealed class ChatCompletionsEndpointTests
         var reasoning = Assert.Single(traceStore.Reasonings);
         Assert.Equal("Draft", reasoning.Label);
         Assert.Equal("hidden thought", reasoning.Content);
-        Assert.DoesNotContain("[Stage:", reasoning.Content);
+        Assert.DoesNotContain("===============", reasoning.Content);
+    }
+
+    [Fact]
+    public async Task StreamTruePipelineSeparatesStageReasoningHeaders()
+    {
+        await using var factory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    services.RemoveAll<IOpenAiCompatibleUpstreamClient>();
+                    services.AddSingleton<IOpenAiCompatibleUpstreamClient>(new FakeUpstreamClient("observations", "draft"));
+                });
+            });
+
+        var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/v1/chat/completions", new ChatCompletionRequest
+        {
+            Model = "local-model",
+            Stream = true,
+            Messages = [new ChatMessageDto { Role = "user", Content = "hello" }],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    Stages =
+                    [
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Name = "Analyze",
+                            Agent = new AgentRequestDto { Model = "local-model" }
+                        },
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Name = "Draft",
+                            Instructions = "Write a draft.",
+                            Agent = new AgentRequestDto { Model = "local-model" }
+                        }
+                    ]
+                }
+            }
+        }, JsonOptions.Default);
+
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var firstHeader = "\"reasoning\":\"===============\\nStage: Analyze\\n===============\\n\\n\"";
+        var secondHeader = "\"reasoning\":\"\\n\\n===============\\nStage: Draft\\n===============\\n\\n\"";
+        Assert.Contains(firstHeader, body);
+        Assert.Contains(secondHeader, body);
+        Assert.True(
+            body.IndexOf(firstHeader, StringComparison.Ordinal) < body.IndexOf(secondHeader, StringComparison.Ordinal),
+            "Second stage header should stream after first stage header.");
     }
 
     [Fact]
