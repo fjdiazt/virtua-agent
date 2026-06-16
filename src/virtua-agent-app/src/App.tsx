@@ -1068,6 +1068,15 @@ type RunReasoning = {
   content: string;
 };
 
+type RunStageOutput = {
+  stageIndex: number;
+  label: string;
+  content: string;
+  model?: string | null;
+  endpointId?: string | null;
+  createdAt?: string;
+};
+
 type RunRecord = {
   runId: string;
   requestId?: string;
@@ -1092,6 +1101,60 @@ function formatJson(value?: string | null) {
   }
 }
 
+function parseTracePayload(event: RunTraceEvent) {
+  try {
+    const parsed = JSON.parse(event.json);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function stageOutputsFromEvents(events: RunTraceEvent[] = []) {
+  const labels = new Map<number, string>();
+  const requests = new Map<number, { model?: string | null; endpointId?: string | null }>();
+  const outputs: RunStageOutput[] = [];
+
+  for (const event of events) {
+    const payload = parseTracePayload(event);
+    if (!payload) continue;
+
+    const stageIndex = typeof payload.stage_index === 'number' ? payload.stage_index : null;
+    if (stageIndex === null) continue;
+
+    if (event.type === 'stage_started') {
+      const stageName = typeof payload.stage_name === 'string' ? payload.stage_name.trim() : '';
+      labels.set(stageIndex, stageName || `Stage ${stageIndex + 1}`);
+      continue;
+    }
+
+    if (event.type === 'agent_request') {
+      requests.set(stageIndex, {
+        model: typeof payload.model === 'string' ? payload.model : null,
+        endpointId: typeof payload.endpoint_id === 'string' ? payload.endpoint_id : null
+      });
+      continue;
+    }
+
+    if (event.type === 'agent_response') {
+      const request = requests.get(stageIndex);
+      const content = typeof payload.content === 'string'
+        ? payload.content
+        : JSON.stringify(payload.content ?? payload, null, 2);
+      outputs.push({
+        stageIndex,
+        label: labels.get(stageIndex) ?? `Stage ${stageIndex + 1}`,
+        content,
+        model: request?.model,
+        endpointId: request?.endpointId,
+        createdAt: event.createdAt
+      });
+    }
+  }
+
+  return outputs;
+}
+
 function RunsPage() {
   const isSmall = useMediaQuery('(max-width: 700px)');
   const [runs, setRuns] = useState<RunRecord[]>([]);
@@ -1101,6 +1164,10 @@ function RunsPage() {
   const selectedRun = useMemo(
     () => runs.find((run) => run.runId === selectedRunId) ?? null,
     [runs, selectedRunId]
+  );
+  const selectedRunOutputs = useMemo(
+    () => stageOutputsFromEvents(selectedRun?.events ?? []),
+    [selectedRun?.events]
   );
 
   async function load() {
@@ -1222,13 +1289,14 @@ function RunsPage() {
                 <Tabs.Tab value="response">Response</Tabs.Tab>
                 <Tabs.Tab value="events">Events</Tabs.Tab>
                 <Tabs.Tab value="reasoning">Reasoning</Tabs.Tab>
+                <Tabs.Tab value="outputs">Outputs</Tabs.Tab>
               </Tabs.List>
 
               <Tabs.Panel value="summary" pt="md">
                 <Stack>
                   <Text>{selectedRun.preview}</Text>
                   <Text c="dimmed">
-                    {(selectedRun.events ?? []).length} events, {(selectedRun.reasonings ?? []).length} reasoning records
+                    {(selectedRun.events ?? []).length} events, {(selectedRun.reasonings ?? []).length} reasoning records, {selectedRunOutputs.length} stage outputs
                   </Text>
                 </Stack>
               </Tabs.Panel>
@@ -1267,6 +1335,27 @@ function RunsPage() {
                     </Box>
                   ))}
                   {(selectedRun.reasonings ?? []).length === 0 && <Text c="dimmed">No reasoning stored.</Text>}
+                </Stack>
+              </Tabs.Panel>
+              <Tabs.Panel value="outputs" pt="md">
+                <Stack gap="xs">
+                  {selectedRunOutputs.map((output) => (
+                    <Box key={`${output.stageIndex}-${output.createdAt ?? output.label}`} className="run-detail-item">
+                      <Group justify="space-between" align="start">
+                        <Box>
+                          <Text fw={600}>{output.label}</Text>
+                          <Text size="xs" c="dimmed">
+                            Execution {output.stageIndex + 1}
+                            {output.model ? `, model ${output.model}` : ''}
+                            {output.endpointId ? `, endpoint ${output.endpointId}` : ''}
+                          </Text>
+                        </Box>
+                        {output.createdAt && <Text size="xs" c="dimmed">{new Date(output.createdAt).toLocaleString()}</Text>}
+                      </Group>
+                      <pre className="run-json">{output.content || 'No output.'}</pre>
+                    </Box>
+                  ))}
+                  {selectedRunOutputs.length === 0 && <Text c="dimmed">No stage outputs stored.</Text>}
                 </Stack>
               </Tabs.Panel>
             </Tabs>
