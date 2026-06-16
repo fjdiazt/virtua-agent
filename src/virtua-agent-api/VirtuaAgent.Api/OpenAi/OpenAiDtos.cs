@@ -22,6 +22,18 @@ public sealed record ChatCompletionRequest
     public List<ChatMessageDto> Messages { get; init; } = [];
     public double? Temperature { get; init; }
 
+    [JsonPropertyName("top_p")]
+    public double? TopP { get; init; }
+
+    [JsonPropertyName("top_k")]
+    public int? TopK { get; init; }
+
+    [JsonPropertyName("min_p")]
+    public double? MinP { get; init; }
+
+    [JsonPropertyName("repeat_penalty")]
+    public double? RepeatPenalty { get; init; }
+
     [JsonPropertyName("max_tokens")]
     public int? MaxTokens { get; init; }
 

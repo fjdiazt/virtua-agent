@@ -15,7 +15,7 @@ Current direction is narrow and inspectable: improve AI responses through explic
 - OpenAI-compatible `/v1/chat/completions` proxy for streaming and non-streaming requests.
 - OpenAI-compatible string and multimodal message content arrays with `text` and `image_url` parts.
 - OpenAI-compatible `/v1/models` list that merges upstream models with saved Virtua Agent Pipeline-backed models.
-- Pipeline orchestration with `single_agent` stages, per-stage instructions, repeats, stage names, default model/temperature/max tokens, per-stage agent overrides, and random agent selection.
+- Pipeline orchestration with `single_agent` stages, per-stage instructions, repeats, stage names, default model/sampling/max tokens, per-stage agent overrides, and random agent selection.
 - Per-stage input routing for original messages and prior stage output.
 - Configurable pipeline protocol with pipeline-level and stage-level protocol overrides.
 - Saved pipeline model CRUD at `/v1/pipeline-models`.
@@ -163,11 +163,23 @@ Inline Virtua Agent Pipeline:
     "pipeline": {
       "default_model": "local-model",
       "default_temperature": 0.2,
+      "default_top_p": 0.9,
+      "default_top_k": 40,
+      "default_min_p": 0.05,
+      "default_repeat_penalty": 1.1,
       "default_max_tokens": 512,
       "stages": [
         {
           "type": "single_agent",
           "name": "Draft",
+          "agent": {
+            "temperature": 0.3,
+            "top_p": 0.85,
+            "top_k": 32,
+            "min_p": 0.03,
+            "repeat_penalty": 1.05,
+            "max_tokens": 512
+          },
           "instructions": "Write a direct first draft."
         },
         {

@@ -7,6 +7,10 @@ public sealed record PipelineDefinition(
     string? DefaultEndpointId,
     string? DefaultModel,
     double? DefaultTemperature,
+    double? DefaultTopP,
+    int? DefaultTopK,
+    double? DefaultMinP,
+    double? DefaultRepeatPenalty,
     int? DefaultMaxTokens,
     string? Protocol,
     List<PipelineStageDefinition> Stages);

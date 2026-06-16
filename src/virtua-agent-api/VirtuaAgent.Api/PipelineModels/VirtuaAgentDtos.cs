@@ -22,6 +22,18 @@ public sealed record PipelineRequestDto
     [JsonPropertyName("default_temperature")]
     public double? DefaultTemperature { get; init; }
 
+    [JsonPropertyName("default_top_p")]
+    public double? DefaultTopP { get; init; }
+
+    [JsonPropertyName("default_top_k")]
+    public int? DefaultTopK { get; init; }
+
+    [JsonPropertyName("default_min_p")]
+    public double? DefaultMinP { get; init; }
+
+    [JsonPropertyName("default_repeat_penalty")]
+    public double? DefaultRepeatPenalty { get; init; }
+
     [JsonPropertyName("default_max_tokens")]
     public int? DefaultMaxTokens { get; init; }
 
@@ -62,6 +74,18 @@ public sealed record AgentRequestDto
 
     public string? Model { get; init; }
     public double? Temperature { get; init; }
+
+    [JsonPropertyName("top_p")]
+    public double? TopP { get; init; }
+
+    [JsonPropertyName("top_k")]
+    public int? TopK { get; init; }
+
+    [JsonPropertyName("min_p")]
+    public double? MinP { get; init; }
+
+    [JsonPropertyName("repeat_penalty")]
+    public double? RepeatPenalty { get; init; }
 
     [JsonPropertyName("max_tokens")]
     public int? MaxTokens { get; init; }

@@ -742,6 +742,10 @@ public sealed class PipelineExecutorTests
         {
             Model = "virtua-agent/editor",
             Temperature = 0.9,
+            TopP = 0.95,
+            TopK = 80,
+            MinP = 0.1,
+            RepeatPenalty = 1.3,
             MaxTokens = 4096,
             Messages = [new ChatMessageDto { Role = "user", Content = "write answer" }],
             Orchestration = new OrchestrationRequestDto
@@ -749,6 +753,10 @@ public sealed class PipelineExecutorTests
                 Pipeline = new PipelineRequestDto
                 {
                     DefaultTemperature = 0.2,
+                    DefaultTopP = 0.8,
+                    DefaultTopK = 40,
+                    DefaultMinP = 0.05,
+                    DefaultRepeatPenalty = 1.1,
                     DefaultMaxTokens = 128,
                     Stages = [new PipelineStageRequestDto { Type = "single_agent" }]
                 }
@@ -758,7 +766,60 @@ public sealed class PipelineExecutorTests
         await executor.ExecuteAsync("run_test", request, store: true);
 
         Assert.Equal(0.2, upstream.Requests[0].Temperature);
+        Assert.Equal(0.8, upstream.Requests[0].TopP);
+        Assert.Equal(40, upstream.Requests[0].TopK);
+        Assert.Equal(0.05, upstream.Requests[0].MinP);
+        Assert.Equal(1.1, upstream.Requests[0].RepeatPenalty);
         Assert.Equal(128, upstream.Requests[0].MaxTokens);
+    }
+
+    [Fact]
+    public async Task StageAgentSamplingOptionsOverridePipelineDefaults()
+    {
+        var upstream = new RecordingUpstreamClient("answer");
+        var executor = CreateExecutor(upstream);
+        var request = new ChatCompletionRequest
+        {
+            Model = "virtua-agent/editor",
+            Messages = [new ChatMessageDto { Role = "user", Content = "write answer" }],
+            Orchestration = new OrchestrationRequestDto
+            {
+                Pipeline = new PipelineRequestDto
+                {
+                    DefaultTemperature = 0.2,
+                    DefaultTopP = 0.8,
+                    DefaultTopK = 40,
+                    DefaultMinP = 0.05,
+                    DefaultRepeatPenalty = 1.1,
+                    DefaultMaxTokens = 128,
+                    Stages =
+                    [
+                        new PipelineStageRequestDto
+                        {
+                            Type = "single_agent",
+                            Agent = new AgentRequestDto
+                            {
+                                Temperature = 0.4,
+                                TopP = 0.7,
+                                TopK = 20,
+                                MinP = 0.02,
+                                RepeatPenalty = 1.2,
+                                MaxTokens = 256
+                            }
+                        }
+                    ]
+                }
+            }
+        };
+
+        await executor.ExecuteAsync("run_test", request, store: true);
+
+        Assert.Equal(0.4, upstream.Requests[0].Temperature);
+        Assert.Equal(0.7, upstream.Requests[0].TopP);
+        Assert.Equal(20, upstream.Requests[0].TopK);
+        Assert.Equal(0.02, upstream.Requests[0].MinP);
+        Assert.Equal(1.2, upstream.Requests[0].RepeatPenalty);
+        Assert.Equal(256, upstream.Requests[0].MaxTokens);
     }
 
     [Fact]
