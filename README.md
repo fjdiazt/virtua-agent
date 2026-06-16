@@ -409,7 +409,7 @@ GET    /v1/orchestrations/{runId}/events
 
 Use `Virtua-Agent-Request-Id` and `Virtua-Agent-Client-Id` request headers to make stored runs easier to correlate.
 
-For streaming pipeline runs, Virtua Agent forwards reasoning chunks as OpenAI-style SSE deltas with `delta.reasoning` only. Stage-separated reasoning is still stored in trace records for debugging and displayed through the Runs UI when storage is enabled.
+For streaming pipeline runs, Virtua Agent forwards reasoning chunks as OpenAI-style SSE deltas with `delta.reasoning` only. Before each stage's first reasoning chunk, the public stream emits a text marker such as `[Stage: Draft]`. Stage-separated reasoning is still stored in trace records for debugging and displayed through the Runs UI when storage is enabled.
 
 ## Verify
 

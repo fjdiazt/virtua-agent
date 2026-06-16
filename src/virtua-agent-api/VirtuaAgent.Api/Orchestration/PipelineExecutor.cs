@@ -105,6 +105,18 @@ public sealed class PipelineExecutor(
                 string? finishReason = null;
                 var thinkExtractor = new ThinkTagStreamExtractor();
                 var reasoningMetadata = BuildReasoningMetadata(stageIndex, executionIndex, repeatIndex, stage);
+                var wroteReasoningStageHeader = false;
+
+                async Task WriteReasoningStageHeaderAsync(CancellationToken token)
+                {
+                    if (wroteReasoningStageHeader)
+                    {
+                        return;
+                    }
+
+                    wroteReasoningStageHeader = true;
+                    await WriteReasoningChunkAsync(output, responseId, responseCreated, responseModel, BuildReasoningStageHeader(reasoningMetadata), token);
+                }
 
                 var onDataAsync = async (string data, CancellationToken token) =>
                 {
@@ -136,6 +148,7 @@ public sealed class PipelineExecutor(
 
                     if (!string.IsNullOrEmpty(delta.Reasoning))
                     {
+                        await WriteReasoningStageHeaderAsync(token);
                         await AppendAndWriteReasoningAsync(runId, store, output, responseId, responseCreated, responseModel, reasoningMetadata, delta.Reasoning, token);
                     }
 
@@ -145,6 +158,7 @@ public sealed class PipelineExecutor(
                         stageContent += extracted.Answer;
                         foreach (var reasoning in extracted.Reasonings)
                         {
+                            await WriteReasoningStageHeaderAsync(token);
                             await AppendAndWriteReasoningAsync(runId, store, output, responseId, responseCreated, responseModel, reasoningMetadata, reasoning, token);
                         }
                     }
@@ -417,6 +431,9 @@ public sealed class PipelineExecutor(
             ? $"{baseLabel} #{repeatIndex + 1}"
             : baseLabel;
     }
+
+    private static string BuildReasoningStageHeader(ReasoningMetadata metadata) =>
+        $"[Stage: {metadata.Label}]\n\n";
 
     private async Task AppendAndWriteReasoningAsync(
         string runId,

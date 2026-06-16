@@ -208,7 +208,12 @@ public sealed class ChatCompletionsEndpointTests
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var stageHeader = "\"reasoning\":\"[Stage: Stage 1]\\n\\n\"";
+        Assert.Contains(stageHeader, body);
         Assert.Contains("\"reasoning\":\"stage reasoning\"", body);
+        Assert.True(
+            body.IndexOf(stageHeader, StringComparison.Ordinal) < body.IndexOf("\"reasoning\":\"stage reasoning\"", StringComparison.Ordinal),
+            "Stage header should stream before stage reasoning.");
         Assert.DoesNotContain("\"virtua_agent\"", body);
         Assert.DoesNotContain("\"stage_index\"", body);
         Assert.DoesNotContain("\"execution_index\"", body);
@@ -220,6 +225,7 @@ public sealed class ChatCompletionsEndpointTests
         var reasoning = Assert.Single(traceStore.Reasonings);
         Assert.Equal("Stage 1", reasoning.Label);
         Assert.Equal("stage reasoning", reasoning.Content);
+        Assert.DoesNotContain("[Stage:", reasoning.Content);
     }
 
     [Fact]
@@ -264,7 +270,12 @@ public sealed class ChatCompletionsEndpointTests
         var body = await response.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var stageHeader = "\"reasoning\":\"[Stage: Draft]\\n\\n\"";
+        Assert.Contains(stageHeader, body);
         Assert.Contains("\"reasoning\":\"hidden thought\"", body);
+        Assert.True(
+            body.IndexOf(stageHeader, StringComparison.Ordinal) < body.IndexOf("\"reasoning\":\"hidden thought\"", StringComparison.Ordinal),
+            "Stage header should stream before extracted think-tag reasoning.");
         Assert.DoesNotContain("\"virtua_agent\"", body);
         Assert.DoesNotContain("\"stage_index\"", body);
         Assert.DoesNotContain("\"execution_index\"", body);
@@ -276,6 +287,7 @@ public sealed class ChatCompletionsEndpointTests
         var reasoning = Assert.Single(traceStore.Reasonings);
         Assert.Equal("Draft", reasoning.Label);
         Assert.Equal("hidden thought", reasoning.Content);
+        Assert.DoesNotContain("[Stage:", reasoning.Content);
     }
 
     [Fact]
