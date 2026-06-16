@@ -176,6 +176,7 @@ public sealed class PipelineExecutor(
                 stageContent += thinkExtractor.Complete();
                 context.CurrentAnswer = stageContent.Trim();
                 context.CurrentAnswerLabel = BuildStageOutputLabel(stageIndex, repeatIndex, stage);
+                await WriteReasoningChunkAsync(output, responseId, responseCreated, responseModel, BuildReasoningStageOutput(context.CurrentAnswer), cancellationToken);
                 lastResponse = new ChatCompletionResponse
                 {
                     Id = string.IsNullOrWhiteSpace(responseId) ? "chatcmpl_" + Guid.NewGuid().ToString("N") : responseId,
@@ -437,6 +438,9 @@ public sealed class PipelineExecutor(
         var prefix = metadata.ExecutionIndex == 0 ? "" : "\n\n";
         return $"{prefix}===============\nStage: {metadata.Label}\n===============\n\n";
     }
+
+    private static string BuildReasoningStageOutput(string content) =>
+        $"\n\n===============\nStage output:\n{content}\n===============";
 
     private async Task AppendAndWriteReasoningAsync(
         string runId,

@@ -209,11 +209,16 @@ public sealed class ChatCompletionsEndpointTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var stageHeader = "\"reasoning\":\"===============\\nStage: Stage 1\\n===============\\n\\n\"";
+        var stageOutput = "\"reasoning\":\"\\n\\n===============\\nStage output:\\nfinal answer\\n===============\"";
         Assert.Contains(stageHeader, body);
         Assert.Contains("\"reasoning\":\"stage reasoning\"", body);
+        Assert.Contains(stageOutput, body);
         Assert.True(
             body.IndexOf(stageHeader, StringComparison.Ordinal) < body.IndexOf("\"reasoning\":\"stage reasoning\"", StringComparison.Ordinal),
             "Stage header should stream before stage reasoning.");
+        Assert.True(
+            body.IndexOf("\"reasoning\":\"stage reasoning\"", StringComparison.Ordinal) < body.IndexOf(stageOutput, StringComparison.Ordinal),
+            "Stage output should stream after stage reasoning.");
         Assert.DoesNotContain("\"virtua_agent\"", body);
         Assert.DoesNotContain("\"stage_index\"", body);
         Assert.DoesNotContain("\"execution_index\"", body);
@@ -226,6 +231,7 @@ public sealed class ChatCompletionsEndpointTests
         Assert.Equal("Stage 1", reasoning.Label);
         Assert.Equal("stage reasoning", reasoning.Content);
         Assert.DoesNotContain("===============", reasoning.Content);
+        Assert.DoesNotContain("Stage output:", reasoning.Content);
     }
 
     [Fact]
