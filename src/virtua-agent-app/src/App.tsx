@@ -27,9 +27,12 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconActivity,
+  IconArrowDown,
+  IconArrowUp,
   IconBook2,
   IconBrandOpenai,
   IconChevronRight,
+  IconCopy,
   IconDownload,
   IconFileImport,
   IconPlus,
@@ -403,6 +406,41 @@ function ModelsPage() {
     }));
   }
 
+  function nextCloneId(id: string) {
+    const ids = new Set(items.map((item) => item.id));
+    const base = `${id.trim() || 'virtua-agent-model'}-copy`;
+    let next = base;
+    for (let index = 2; ids.has(next); index += 1) next = `${base}-${index}`;
+    return next;
+  }
+
+  function cloneModel(model: VirtuaAgentModel) {
+    const clone = structuredClone(model);
+    const cloneId = nextCloneId(model.id);
+    clone.id = cloneId;
+    setSelectedId(null);
+    setDraft(clone);
+    setEditorOpen(true);
+    notifications.show({ color: 'blue', message: `Cloned ${model.id || 'model'} as ${cloneId}. Save model to persist.` });
+    void loadModelsForEndpoint(clone.pipeline.default_endpoint_id);
+    clone.pipeline.stages.forEach((stage) => {
+      void loadModelsForEndpoint(stage.agent?.endpoint_id);
+    });
+  }
+
+  function moveStage(index: number, direction: -1 | 1) {
+    setDraft((current) => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= current.pipeline.stages.length) return current;
+      const stages = [...current.pipeline.stages];
+      [stages[index], stages[nextIndex]] = [stages[nextIndex], stages[index]];
+      return {
+        ...current,
+        pipeline: { ...current.pipeline, stages }
+      };
+    });
+  }
+
   function openModel(model: VirtuaAgentModel) {
     setSelectedId(model.id);
     setDraft(structuredClone(model));
@@ -593,6 +631,7 @@ function ModelsPage() {
                 <Table.Th>Default model</Table.Th>
                 <Table.Th>Stages</Table.Th>
                 <Table.Th className="optional-column">Default endpoint</Table.Th>
+                <Table.Th>Actions</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -602,11 +641,16 @@ function ModelsPage() {
                   <Table.Td><Text className="cell-wrap">{item.pipeline.default_model ?? 'Unset'}</Text></Table.Td>
                   <Table.Td><Badge variant="light">{item.pipeline.stages.length}</Badge></Table.Td>
                   <Table.Td className="optional-column"><Text className="cell-wrap">{endpointLabel(item.pipeline.default_endpoint_id)}</Text></Table.Td>
+                  <Table.Td onClick={(event) => event.stopPropagation()}>
+                    <Button size="xs" variant="subtle" leftSection={<IconCopy size={14} />} onClick={() => cloneModel(item)}>
+                      Clone
+                    </Button>
+                  </Table.Td>
                 </Table.Tr>
               ))}
               {items.length === 0 && (
                 <Table.Tr>
-                  <Table.Td colSpan={4}><Text c="dimmed" p="sm">No Virtua Agent Models saved.</Text></Table.Td>
+                  <Table.Td colSpan={5}><Text c="dimmed" p="sm">No Virtua Agent Models saved.</Text></Table.Td>
                 </Table.Tr>
               )}
             </Table.Tbody>
@@ -617,7 +661,7 @@ function ModelsPage() {
       <Modal
         opened={editorOpen}
         onClose={() => setEditorOpen(false)}
-        title={selectedId ? `Edit ${selectedId}` : 'New Virtua Agent model'}
+        title={selectedId ? `Edit ${selectedId}` : draft.id ? `New ${draft.id}` : 'New Virtua Agent model'}
         size="95%"
         fullScreen={isSmall}
         centered={!isSmall}
@@ -714,20 +758,38 @@ function ModelsPage() {
                   <Stack>
                     <Group justify="space-between">
                       <Text fw={600}>Stage {index + 1}</Text>
-                      <ActionIcon
-                        variant="subtle"
-                        color="red"
-                        aria-label="Remove stage"
-                        onClick={() => setDraft({
-                          ...draft,
-                          pipeline: {
-                            ...draft.pipeline,
-                            stages: draft.pipeline.stages.filter((_, stageIndex) => stageIndex !== index)
-                          }
-                        })}
-                      >
-                        <IconTrash size={18} />
-                      </ActionIcon>
+                      <Group gap="xs">
+                        <ActionIcon
+                          variant="subtle"
+                          aria-label="Move stage up"
+                          disabled={index === 0}
+                          onClick={() => moveStage(index, -1)}
+                        >
+                          <IconArrowUp size={18} />
+                        </ActionIcon>
+                        <ActionIcon
+                          variant="subtle"
+                          aria-label="Move stage down"
+                          disabled={index === draft.pipeline.stages.length - 1}
+                          onClick={() => moveStage(index, 1)}
+                        >
+                          <IconArrowDown size={18} />
+                        </ActionIcon>
+                        <ActionIcon
+                          variant="subtle"
+                          color="red"
+                          aria-label="Remove stage"
+                          onClick={() => setDraft({
+                            ...draft,
+                            pipeline: {
+                              ...draft.pipeline,
+                              stages: draft.pipeline.stages.filter((_, stageIndex) => stageIndex !== index)
+                            }
+                          })}
+                        >
+                          <IconTrash size={18} />
+                        </ActionIcon>
+                      </Group>
                     </Group>
                     <Box className="stage-primary-grid">
                       <TextInput
@@ -860,6 +922,9 @@ function ModelsPage() {
                 Add stage
               </Button>
               <Group>
+                <Button variant="light" leftSection={<IconCopy size={16} />} onClick={() => cloneModel(draft)}>
+                  Clone
+                </Button>
                 <Button variant="light" leftSection={<IconDownload size={16} />} onClick={exportDraftModel}>
                   Export JSON
                 </Button>
