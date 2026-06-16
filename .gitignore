@@ -2,6 +2,7 @@
 .scripts/
 .logs/
 .docs/
+.tmp/
 bin/
 obj/
 *.user
